@@ -6,6 +6,9 @@ import argparse
 def parse_arguments(arguments=sys.argv[1:]):
     parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter,
                                      description="""SVPG - Structural variant detection based on pangenome graph""")
+    if len(sys.argv) == 1:
+        parser.print_help(sys.stderr)
+        sys.exit(1)
 
     subparsers = parser.add_subparsers(help='mode', dest='sub')
     parser.set_defaults(sub='call')

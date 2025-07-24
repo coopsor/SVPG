@@ -1,16 +1,23 @@
 from setuptools import setup, find_packages
 
+with open('README.md') as f:
+    readme = f.read()
+
 setup(
     name='svpg',
-    version='0.1.0',
+    version='1.1',
     description='A pangenome-based structural variant caller',
     author='henghu',
     author_email='hhengwork@gmail.com',
+    license="MIT",
+    long_description=readme,
+    long_description_content_type='text/markdown',
     packages=find_packages("src"),
     package_dir={"": "src"},
     install_requires=[
         'numpy>=1.26.4',
         'pysam>=0.22',
+        'scipy>=1.13.1'
     ],
     entry_points={
         'console_scripts': [

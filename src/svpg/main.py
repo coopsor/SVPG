@@ -99,6 +99,7 @@ def main():
                 print(
                     "Please specify the min_support or sequencing depth.")
                 return
+
         gfa_node = read_gfa(options.gfa)
 
         if options.contigs is None:
@@ -207,7 +208,6 @@ def main():
             for chunk_index, lines in enumerate(read_in_chunks(f, chunk_size=200000000)):
                 logging.info(f"Processing chunk {chunk_index+1}")
                 pan_signatures.extend(multi_process(len(lines), 'read_gaf_pan', (lines, gfa_node)))
-                # pan_signatures.extend(read_gaf_pan(lines, gfa_node,options))
                 logging.info(f"Processed chunks {chunk_index+1}")
 
     elif options.sub == 'augment':
