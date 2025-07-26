@@ -61,7 +61,7 @@ The following tools must be available in your system path (recommend installing 
 
 ### 1. Pangenome-Guided SV Detection
 * SVPG support parallelized and uses 16 threads by default. This value can be adapted using e.g. `-t` 4 as option.
-* We evaluated SVPG using the prebuilt human pangenome graph ([v3.1](https://zenodo.org/records/10693675)) constructed from 47 samples, which represented the latest version at the time of testing prior to public release. 
+* We evaluated SVPG using the prebuilt human pangenome graph ([v3.1](https://zenodo.org/records/10693675)) constructed from 47 samples. 
 * The following table provides recommended `--min_support` parameter to filter out low-quality SVs under different sequencing depths for **ONT** and **HiFi** platforms. Alternatively, users can specify the sequencing depth with `-d`(`--depth`), and SVPG will automatically estimate an appropriate minimum support threshold.
 
   | Depth Range  | ONT | HiFi |
@@ -74,7 +74,7 @@ The following tools must be available in your system path (recommend installing 
 ```bash
 svpg call --working_dir svpg_out/ --bam sample.bam --ref hg38.fa --gfa pangenome.gfa --read ont -s 3
 ```
-The output file `variants.vcf` is placed into the given working directory. `-o` option can be used to specify the output file name.
+The called file `variants.vcf` was saved in the specified working directory. `-o` option can be used to specify the output file name.
 
 ### 2. Graph-Based SV Detection
 * Graph-based mode requires an input of read-graph alignment results in GAF format. If you start with sequencing reads (Fasta or Fastq format), you may use minigraph to map them to a pangenome reference.

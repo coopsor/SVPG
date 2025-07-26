@@ -5,7 +5,7 @@ with open('README.md') as f:
 
 setup(
     name='svpg',
-    version='1.1',
+    version='1.2.0',
     description='A pangenome-based structural variant caller',
     author='henghu',
     author_email='hhengwork@gmail.com',

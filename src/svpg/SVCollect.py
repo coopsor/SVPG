@@ -160,8 +160,7 @@ def retrieve_other_alignments(main_alignment, bam):
 
 def read_bam(contig, start, end, options):
     """Parse BAM record to extract SVs."""
-    # bam = pysam.AlignmentFile(options.bam, threads=options.num_threads)
-    from svpg.main import bam
+    bam = pysam.AlignmentFile(options.bam, threads=options.num_threads)
     sv_signatures, sv_signatures_inter = [], []
     for current_alignment in bam.fetch(contig, start, end):
         try:

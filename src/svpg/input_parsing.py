@@ -9,6 +9,9 @@ def parse_arguments(arguments=sys.argv[1:]):
     if len(sys.argv) == 1:
         parser.print_help(sys.stderr)
         sys.exit(1)
+    parser.add_argument('-v', '--version',
+                        action='version',
+                        version='svpg v1.2.0')
 
     subparsers = parser.add_subparsers(help='mode', dest='sub')
     parser.set_defaults(sub='call')

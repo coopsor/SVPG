@@ -19,7 +19,10 @@ def form_bins(sv_signatures, max_distance):
         grouped_bin.append(current_group)
 
     bin_depth = [len(bin) for bin in grouped_bin]
-    mean_depth = sum(bin_depth) / len(bin_depth)
+    try:
+        mean_depth = sum(bin_depth) / len(bin_depth)
+    except ZeroDivisionError:
+        mean_depth = 0
 
     return grouped_bin, mean_depth
 

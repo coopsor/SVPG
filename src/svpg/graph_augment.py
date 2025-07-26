@@ -1,6 +1,5 @@
 import os
 import subprocess
-import time
 
 import pysam.bcftools
 
@@ -54,34 +53,24 @@ def augment_pipe(base_dir, ref_file, pan_file, output_file):
     os.chdir(base_dir)
     os.makedirs('tmp', exist_ok=True)
 
-    print(">>> Merge VCF files using bcftools.")
-    # subprocess.run("bcftools merge -l filelist.tsv --missing-to-ref --force-samples  -W -Oz -o merged.vcf.gz", shell=True, check=True)
+    print(">>> Merge VCF files using bcftools...")
     pysam.bcftools.merge("-l", "filelist.tsv", "--missing-to-ref", "--force-samples", "-Oz", "-o", "tmp/merged.vcf.gz", force=True, catch_stdout=False)
     pysam.tabix_index("tmp/merged.vcf.gz", preset="vcf", force=True)
-    # subprocess.run("tabix -f merged.vcf.gz", shell=True, check=True)
 
-    print(">>> Normalize the merged VCF file to ensure biallelic representation.")
+    print(">>> Normalize the merged VCF file to ensure biallelic representation...")
     subprocess.run("bcftools norm -m- tmp/merged.vcf.gz  -Oz -o tmp/merged_biallelic.vcf.gz", shell=True, check=True)
-    # pysam.bcftools.norm("-m-", "tmp/merged.vcf.gz", "-Oz", "-o", "tmp/merged_biallelic.vcf.gz", catch_stdout=False)
     pysam.tabix_index("tmp/merged_biallelic.vcf.gz", preset="vcf", force=True)
 
-    print(">>> Collapse the normalized VCF file using Truvari.")
+    print(">>> Collapse the normalized VCF file using Truvari...")
     collapse_cmd = f"truvari collapse -i tmp/merged_biallelic.vcf.gz -o tmp/collapsed.tmp -c tmp/output.collapsed -f {ref_file}"
     subprocess.run(collapse_cmd, shell=True, check=True)
-    # pysam.bcftools.sort("tmp/collapsed.tmp", "-Oz", "-o", "variants.vcf.gz", force=True, catch_stdout=False)
     subprocess.run("bcftools sort tmp/collapsed.tmp -W -Oz -o variants.vcf.gz", shell=True, check=True)
-    # time.sleep(1)
-    # if os.path.exists("variants.vcf.gz.csi"):
-    #     os.remove("variants.vcf.gz.csi")
-    # pysam.tabix_index("variants.vcf.gz", preset="vcf", force=True)
 
-    print(">>> Generate the consensus sequence from the VCF file.")
-    # pysam.bcftools.consensus("-f", ref_file, "variants.vcf.gz", "-o", "tmp/cons.fa", force=True, catch_stdout=False)
-    # subprocess.run("sed 's/^>/&augment_/' tmp/cons.fa > tmp/cons.tmp", shell=True, check=True)
+    print(">>> Generate the consensus sequence from the VCF file...")
     subprocess.run(f"bcftools consensus -f {ref_file} variants.vcf.gz | sed 's/^>/&augment_/' > tmp/cons.tmp", shell=True, check=True)
 
     process_fasta('tmp/cons.tmp', 'cons_noN.fa')
-    subprocess.run("rm -rf tmp/*", shell=True, check=True)
+    subprocess.run("rm -rf tmp", shell=True, check=True)
 
     print(f">>> Construct a augment graph using Minigraph to {output_file}")
     subprocess.run(f"minigraph -cxggs -t128 {pan_file} cons_noN.fa > {output_file}", shell=True, check=True)

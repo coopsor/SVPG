@@ -38,8 +38,10 @@ def parse_gaf_line(tokens, gfa_node):
     gafline.query_start = int(tokens[2])
     gafline.query_end = int(tokens[3])
     gafline.path = re.findall(r'[<>][^<>]+', tokens[5])
-    gafline.strand = '+' if gafline.path[0][0] == '>' else '-'
-    # gafline.strand = tokens[4]
+    try:
+        gafline.strand = '+' if gafline.path[0][0] == '>' else '-'
+    except IndexError:
+        raise ValueError(f"Please check the GAF file format. SVPG expects standard GAF format, refer to readme for GFA and rGFA format.")
     gafline.contig = gfa_node[gafline.path[0][1:]].contig
     gafline.offset = gfa_node[gafline.path[0][1:]].offset
     gafline.path_length = int(tokens[6])

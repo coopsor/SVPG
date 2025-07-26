@@ -1,3 +1,4 @@
+import os
 import re
 
 class gfaNode:
@@ -105,20 +106,16 @@ def sorted_nicely(vcf_entries):
     tuple_key = lambda entry: (alphanum_key(str(entry[0][0])), entry[0][1], entry[0][2])
     return sorted(vcf_entries, key=tuple_key)
 
-# class ToolMissingError(Exception): pass
-#
-# def check_prereqisites():
-#     tools = {
-#         'bgzip': ['bgzip', '--version'],
-#         'tabix': ['tabix', '--version'],
-#         'minigraph': ['minigraph', '--version'],
-#         'bcftools': ['bcftools', '--version'],
-#         'truvari': ['truvari', '--version']
-#     }
-#
-#     for tool, cmd in tools.items():
-#         try:
-#             subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-#         except (subprocess.CalledProcessError, FileNotFoundError) as e:
-#             raise ToolMissingError(
-#                 f"The pipeline cannot be started because '{tool}' is missing or failed to run.") from e
+
+def find_sequence_file(entry):
+    """Find a sequence file in the given entry's path with common suffixes."""
+    common_suffixes = ['.fa', '.fasta', '.fna', '.fastq', '.fq',
+                       '.fa.gz', '.fasta.gz', '.fna.gz', '.fastq.gz', '.fq.gz']
+
+    for suffix in common_suffixes:
+        filename = f"{entry.name}{suffix}"
+        full_path = os.path.join(entry.path, filename)
+        if os.path.exists(full_path):
+            return suffix
+
+    return None

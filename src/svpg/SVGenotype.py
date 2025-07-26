@@ -1,6 +1,6 @@
 from math import log10
 import numpy as np
-# import pysam
+import pysam
 
 err = 0.2
 prior = float(1/3)
@@ -57,8 +57,8 @@ def cal_GL(c0, c1, type, platform):
     return Genotype[prob.index(max(prob))], "%d,%d,%d" % (PL[0], PL[1], PL[2]), max(GQ), QUAL
 
 def genotype(candidates, type, options):
-    # bam = pysam.AlignmentFile(options.bam, threads=options.num_threads)
-    from svpg.main import bam
+    bam = pysam.AlignmentFile(options.bam, threads=options.num_threads)
+
     for nr, candidate in enumerate(candidates):
         reads_supporting_variant = set(candidate.members)
         max_bias = 1000

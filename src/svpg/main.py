@@ -1,7 +1,6 @@
 import re
 import sys
 import os
-import pickle
 import logging
 import time
 from multiprocessing import Pool
@@ -13,14 +12,12 @@ from svpg.input_parsing import parse_arguments
 from svpg.SVCollect import read_bam
 from svpg.SVCluster import form_bins, cluster_data
 from svpg.SVPan import read_gaf, read_gaf_pan
-from svpg.util import read_gfa
+from svpg.util import read_gfa, find_sequence_file
 from svpg.output_vcf import consolidate_clusters_unilocal, write_final_vcf
 from svpg.SVGenotype import genotype
 from svpg.graph_augment import augment_pipe
 
 options = parse_arguments()
-if options.sub == 'call':
-    bam = pysam.AlignmentFile(options.bam, threads=options.num_threads)
 ref_genome = pysam.FastaFile(options.ref)
 
 def multi_process(total_len, step, args=None):
@@ -112,6 +109,7 @@ def main():
         logging.info("***************** Collect SV signatures *****************")
 
         try:
+            bam = pysam.AlignmentFile(options.bam, threads=options.num_threads)
             bam.check_index()
         except ValueError:
             logging.warning(
@@ -232,16 +230,20 @@ def main():
             else:
                 # Fallback to directory scanning if sample_list is not provided
                 for entry in os.scandir(base_dir):
-                    if entry.is_dir() and entry.name.startswith("HG"):
+                    if entry.is_dir() and entry.name.startswith("sample"):
                         # Assuming FASTA file is directly inside the sample directory and named as {prefix}.fasta
-                        fasta_path_in_dir = os.path.join(entry.path, f"{entry.name}.fasta")
-                        if os.path.exists(fasta_path_in_dir):
-                            sample_paths_to_process.append(fasta_path_in_dir)
-                        else:
-                            logging.warning(
-                                f"Expected FASTA file {fasta_path_in_dir} not found. Skipping {entry.name}.")
+                        file_type = find_sequence_file(entry)
+                        if not file_type:
+                            logging.warning(f"Expected FASTA file {file_type} not found. Skipping {entry.name}.")
                             raise RuntimeError(f"FASTA file not found for sample: {entry.name}")
 
+                        fasta_path_in_dir = os.path.join(entry.path, f"{entry.name}{file_type}")
+                        sample_paths_to_process.append(fasta_path_in_dir)
+            if not sample_paths_to_process:
+                logging.error("No sample paths to process. Please check your sample list or directory structure.")
+                raise RuntimeError("No sample paths to process.")
+            else:
+                logging.info(f"Found {len(sample_paths_to_process)} samples to process.")
             with open(filelist_path, "a") as filelist:
                 for fasta_file_path in sample_paths_to_process:
                     try:
@@ -255,7 +257,7 @@ def main():
 
                         fasta_file_name = os.path.basename(fasta_file_path)
 
-                        logging.info(f"Start call SVs from sample {prefix}")
+                        logging.info(f"Start call SVs from {prefix}")
                         file_size = os.path.getsize(fasta_file_name)
                         coverage = file_size // (1024 * 1024 * 1024) // 3.1
                         hifi_support_map = [
@@ -273,8 +275,7 @@ def main():
                                 cmd_align = f"minigraph -t128 -cxasm --vc --secondary yes {options.gfa} {fasta_file_name} > {gaf_file}"
                             else:
                                 cmd_align = f"minigraph -t128 -cxlr --vc --secondary yes {options.gfa} {fasta_file_name} > {gaf_file}"
-                            subprocess.run(cmd_align, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                                           text=True)
+                            os.system(cmd_align)
 
                         var_file = options.vcf_out
                         cmd_call = [
@@ -340,6 +341,10 @@ def main():
         if not element_signature:
             continue
         signature_bin, bin_depth = form_bins(element_signature, 1000)
+        if bin_depth == 0:
+            logging.warning("No signatures found in the current bin. Skipping clustering for this bin.")
+            continue
+
         bin_depth_list.append(bin_depth)
         signature_clusters = []
         signature_clusters.extend(multi_process(len(signature_bin), 'cluster', (signature_bin, bin_depth)))
