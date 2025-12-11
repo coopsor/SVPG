@@ -6,16 +6,6 @@ err = 0.2
 prior = float(1/3)
 Genotype = ["0/0", "0/1", "1/1"]
 
-def threshold_ref_count(num):
-    if num <= 2:
-        return 20*num
-    elif 3 <= num <= 5:
-        return 9*num
-    elif 6 <= num <= 15:
-        return 7*num
-    else:
-        return 5*num
-
 def log10sumexp(log10_probs):
     # Normalization of Genotype likelihoods
     m = max(log10_probs)
@@ -37,9 +27,9 @@ def rescale_read_counts(c0, c1, max_allowed_reads=100):
 
 def cal_GL(c0, c1, type, platform):
     if platform == "hifi":
-        err = 0.05 if type == "INS" else 0.05
+        err = 0.01
     else:
-        err = 0.1 if type == "INS" else 0.1
+        err = 0.1
     # Approximate adjustment of events with larger read depth
     c0, c1 = rescale_read_counts(c0, c1)
 
@@ -56,13 +46,30 @@ def cal_GL(c0, c1, type, platform):
 
     return Genotype[prob.index(max(prob))], "%d,%d,%d" % (PL[0], PL[1], PL[2]), max(GQ), QUAL
 
+def threshold_ref_count(num):
+    if num <= 2:
+        return 20*num
+    elif 3 <= num <= 5:
+        return 9*num
+    elif 6 <= num <= 15:
+        return 7*num
+    else:
+        return 5*num
+
 def genotype(candidates, type, options):
     bam = pysam.AlignmentFile(options.bam, threads=options.num_threads)
 
     for nr, candidate in enumerate(candidates):
         reads_supporting_variant = set(candidate.members)
-        max_bias = 1000
-        contig, start, end = candidate.get_source()
+
+        if type != "BND":
+            max_bias = 1000
+            contig, start, end = candidate.get_source()
+        else:
+            up_bound = threshold_ref_count(len(reads_supporting_variant))
+            max_bias = 100
+            contig, start = candidate.get_source()
+            end = start + 1
         contig_length = bam.get_reference_length(contig)
         try:
             alignment_it = bam.fetch(contig=contig, start=max(0, start-max_bias), stop=min(contig_length, end+max_bias))
@@ -84,17 +91,21 @@ def genotype(candidates, type, options):
             aln_no += 1
             if type == "DEL":
                 minimum_overlap = min((end - start) / 2, 2000)
-                if (current_alignment.reference_start < (end - minimum_overlap) and current_alignment.reference_end > (end + max_bias) or
-                    current_alignment.reference_start < (start - max_bias) and current_alignment.reference_end > (start + minimum_overlap)):
+                if (current_alignment.reference_start < (end - minimum_overlap) and current_alignment.reference_end > (
+                        end + max_bias) or
+                        current_alignment.reference_start < (start - max_bias) and current_alignment.reference_end > (
+                                start + minimum_overlap)):
                     reads_supporting_reference.add(current_alignment.query_name)
             else:
                 if current_alignment.reference_start < (start - max_bias) and current_alignment.reference_end > (end + max_bias):
                     reads_supporting_reference.add(current_alignment.query_name)
+                    if type == 'BND':
+                        if len(reads_supporting_reference) >= up_bound:
+                            break
 
         GT, GL, GQ, QUAL = cal_GL(len(reads_supporting_reference), len(reads_supporting_variant), type, options.read)
 
-        candidate.support_fraction = len(reads_supporting_variant) / (
-                len(reads_supporting_variant) + len(reads_supporting_reference))
+        candidate.support_fraction = len(reads_supporting_variant) / (len(reads_supporting_variant) + len(reads_supporting_reference))
         candidate.genotype = GT
         candidate.ref_reads = len(reads_supporting_reference)
         candidate.alt_reads = len(reads_supporting_variant)

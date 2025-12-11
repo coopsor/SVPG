@@ -13,10 +13,12 @@ def decompose_cigars(alignment, bam, query_name, min_length):
     read_seq = alignment.query_sequence
     for pos_ref, pos_read, length, typ in indels:
         start = ref_start + pos_ref
+        phase = alignment.get_tag("HP") if alignment.has_tag("HP") else None
         if typ == "DEL":
-            sv_signatures.append(SignatureDeletion(ref_chr, start, length, "cigar", query_name, read_seq=read_seq, pos_read=pos_read))
+            sv_signatures.append(SignatureDeletion(ref_chr, start, length, "cigar", query_name, read_seq=read_seq, pos_read=pos_read, phase=phase))
         elif typ == "INS":
-            sv_signatures.append(SignatureInsertion(ref_chr, start, length, "cigar", query_name, read_seq=read_seq, pos_read=pos_read))
+            insertion_seq = read_seq[pos_read:pos_read + length]
+            sv_signatures.append(SignatureInsertion(ref_chr, start, length, "cigar", query_name, read_seq=read_seq, pos_read=pos_read, alt_seq=insertion_seq, phase=phase))
 
     return sv_signatures
 
@@ -51,14 +53,19 @@ def analyze_split_indel(alignment_current, alignment_next, ultra_ins_flag=False)
                         else:
                             start = min(alignment_current['ref_end'], alignment_next['ref_start'])
                         pos_read = alignment_current['q_end']
+                        insertion_seq = alignment_current['atgc_seq'][
+                                        alignment_current['q_end']:alignment_current['q_end'] + deviation]
                     else:
                         if not ultra_ins_flag:
                             start = alignment_current['ref_start']
                         else:
                             start = min(alignment_current['ref_start'], alignment_next['ref_end'])
                         pos_read = alignment_next['infer_read_length'] - alignment_next['q_start']
+                        insertion_seq = alignment_current['atgc_seq'][alignment_current['infer_read_length'] - alignment_next[
+                            'q_start']: alignment_current['infer_read_length'] - alignment_next[
+                            'q_start'] + deviation]
                     split_signature.append(SignatureInsertion(
-                        alignment_current['ref_chr'], start, deviation, "suppl", alignment_current['read_name'], read_seq=alignment_current['atgc_seq'], pos_read=pos_read, alt_seq='<INS>'))
+                        alignment_current['ref_chr'], start, deviation, "suppl", alignment_current['read_name'], read_seq=alignment_current['atgc_seq'], pos_read=pos_read, alt_seq=insertion_seq))
                 # DEL
                 elif deviation <= -50:
                     if not alignment_current['is_reverse']:
@@ -166,9 +173,9 @@ def read_bam(contig, start, end, options):
         try:
             if current_alignment.is_unmapped or current_alignment.is_secondary or current_alignment.mapping_quality < options.min_mapq or current_alignment.reference_start < start:
                 continue
-            sigs = decompose_cigars(current_alignment, bam, current_alignment.query_name, options.min_sv_size)
+            sigs = decompose_cigars(current_alignment, bam, current_alignment.query_name, 50)
             if sigs:
-                sigs = merge_cigar(sigs, options.read)
+                sigs = merge_cigar(sigs, max_merge=options.max_merge_threshold)
                 sv_signatures.extend(sigs)
             if not current_alignment.is_supplementary:
                 supplementary_alignments = retrieve_other_alignments(current_alignment, bam)

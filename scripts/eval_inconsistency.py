@@ -3,6 +3,9 @@ import argparse
 import logging
 import time
 
+"""
+Evaluate SV calling inconsistency in a replicate sample.
+"""
 
 def pase_info(seq):
     info = {'SVLEN': 0, 'END': 0, "SVTYPE": '', "RE": 0, "CHR2": ''}

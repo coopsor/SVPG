@@ -11,7 +11,7 @@ def parse_arguments(arguments=sys.argv[1:]):
         sys.exit(1)
     parser.add_argument('-v', '--version',
                         action='version',
-                        version='svpg v1.2.0')
+                        version='svpg v1.3.0')
 
     subparsers = parser.add_subparsers(help='mode', dest='sub')
     parser.set_defaults(sub='call')
@@ -20,15 +20,13 @@ def parse_arguments(arguments=sys.argv[1:]):
                                        help='Pangenome-guided SV detection')
     parser_bam.add_argument('--working_dir',
                             type=os.path.abspath,
-                            help='Working and output directory. \
-                                  Existing files in the directory are overwritten. \
-                                  If the directory does not exist, it is created.')
+                            help='Specify the working directory to store output files.' )
     parser_bam.add_argument('--bam',
                             type=str,
-                            help='Coordinate-sorted and indexed BAM file with aligned long reads')
+                            help='Coordinate-sorted and indexed BAM file with aligned long reads.')
     parser_bam.add_argument('--ref',
                             type=str,
-                            help='Liner reference genome file that the long reads were aligned to (.fa)')
+                            help='The reference genome used for pangenome construction (.fa), is also serves as the coordinate system for SVPG’s SV call output.')
     parser_bam.add_argument('-o', '--out',
                             type=str,
                             default='variants.vcf',
@@ -42,61 +40,62 @@ def parse_arguments(arguments=sys.argv[1:]):
                             help='Number of threads to use')
     parser_bam.add_argument('--read',
                             type=str,
-                            default='ont',
-                            help='Platform type for sequencing data, either "ont", "hifi" or "clr" (default: %(default)s)')
+                            choices=['hifi', 'ont'],
+                            default='hifi',
+                            help="Type of sequencing reads: `ont` for Oxford Nanopore, `hifi` for PacBio HiFi. ")
     parser_bam.add_argument('--min_mapq',
                             type=int,
                             default=20,
-                            help='Minimum mapping quality of reads to consider (default: %(default)s). \
-                                  Reads with a lower mapping quality are ignored.')
+                            help='Minimum mapping quality for reads to be considered in SV detection.')
     parser_bam.add_argument('--min_sv_size',
                             type=int,
-                            default=40,
-                            help='Minimum SV size to detect (default: %(default)s). \
-                                  SVPG can potentially detect events of any size but is limited by the \
-                                  signal-to-noise ratio in the input alignments. That means that more \
-                                  accurate reads and alignments enable the detection of smaller events. \
-                                  For current PacBio or Nanopore data, we would recommend a minimum size \
-                                  of min_sv_sizebp or larger.')
+                            default=50,
+                            help='Minimum size of SVs to be detected.')
     parser_bam.add_argument('--max_sv_size',
                             type=int,
-                            default=-1,
+                            default=100000,
                             help='Maximum SV size to detect include sequence information. Set to -1 for unlimited size.')
+    parser_bam.add_argument('--max_merge_threshold',
+                            type=int,
+                            default=None,
+                            help='Maximum distance of SV signals to be merged.')
+    parser_bam.add_argument('--ultra_split_size',
+                            type=int,
+                            default=1000000,
+                            help='Ignore extremely large BNDs from split alignments unless supported by high enough reads,\
+                                  which may be regarded as false-negative intra-chromosomal translocation')
     parser_bam.add_argument('--noseq',
                             action='store_true',
-                            default=False,
-                            help='Omit sequence information in VCF. Recommended for somatic SV analysis with many large SVs.')
-    parser_bam.add_argument('-d', '--depth',
-                            type=int,
-                            help='Sequencing depth of this dataset')
+                            help='Disable sequence extraction for SVs. Useful for large SVs to save time and disk space.')
+    parser_bam.add_argument('--realign',
+                            action='store_true',
+                            help='Realign the noise reads to the reference for more accurate SV sequence inference')
     parser_bam.add_argument('-s', '--min_support',
                             type=int,
-                            help='Minimal number of supporting reads for one SV event')
+                            default=2,
+                            help='Minimum read support threshold for SV calling. Adjust based on sequencing depth.')
     parser_bam.add_argument('--types',
                             type=str,
-                            default="DEL,INS",
+                            default="DEL,INS,DUP,INV,BND",
                             help='SV types to include in output VCF (default: %(default)s). \
-                                  Give a comma-separated list of SV types. The possible SV types are: DEL (deletions), \
-                                  INS (novel insertions)')
+                                  Give a comma-separated list of SV types, like "DEL,INS"')
     parser_bam.add_argument('--contigs',
                             type=str,
                             nargs='*',
                             help='Specify the chromosomes list to call SVs (e.g., --contigs chr1 chr2 chrX)')
     parser_bam.add_argument('--skip_genotype',
                             action='store_true',
-                            help='Skip genotyping and only call SVs')
+                            help='Skip genotyping step to speed up the processing.')
 
     ##########################################################
     parser_gaf = subparsers.add_parser('graph-call',
                                        help='Pangenome-based de novo SV detection')
     parser_gaf.add_argument('--working_dir',
                             type=os.path.abspath,
-                            help='Working and output directory. \
-                                  Existing files in the directory are overwritten. \
-                                  If the directory does not exist, it is created.')
+                            help='Specify the working directory to store output files.')
     parser_gaf.add_argument('--ref',
                             type=str,
-                            help='Liner reference genome file that the long reads were aligned to (.fa)')
+                            help='The reference genome used for pangenome construction (.fa), is also serves as the coordinate system for SVPG’s SV call output.')
     parser_gaf.add_argument('--gfa',
                             type=str,
                             help='Pangenome reference file that the long reads were aligned to (.gfa)')
@@ -106,56 +105,48 @@ def parse_arguments(arguments=sys.argv[1:]):
     parser_gaf.add_argument('-o', '--out',
                             type=str,
                             default='variants.vcf',
-                            help='VCF output file name')
+                            help='Specify the output file name.')
     parser_gaf.add_argument('-t', '--num_threads',
                             type=int,
                             default=16,
-                            help='Number of threads to use')
+                            help='Number of threads to use for parallel processing.')
     parser_gaf.add_argument('--read',
                             type=str,
-                            default='ont',
-                            help='Platform type for sequencing data, either "ont", "hifi" or "clr"  (default: %(default)s)')
-    parser_gaf.add_argument('--raw_fasta',
-                            type=str,
-                            help='Raw fasta file that the long reads. Since the GAF format does not store \
-                                  complete sequences information, providing the original reads\
-                                  sequencing data through the --raw_fasta parameter becomes essential \
-                                  in graph augmentation mode or when forced output of ALT information \
-                                  for split alignments is required. ')
+                            default='hifi',
+                            help='Type of sequencing reads: `ont` for Oxford Nanopore, `hifi` for PacBio HiFi.')
     parser_gaf.add_argument('--min_mapq',
                             type=int,
                             default=20,
-                            help='Minimum mapping quality of reads to consider (default: %(default)s). \
-                                  Reads with a lower mapping quality are ignored.')
+                            help='Minimum mapping quality for reads to be considered in SV detection.')
+    parser_gaf.add_argument('--max_merge_threshold',
+                            type=int,
+                            default=500,
+                            help='Maximum distance of SV signals to be merged')
     parser_gaf.add_argument('--min_sv_size',
                             type=int,
-                            default=40,
-                            help='Minimum SV size to detect (default: %(default)s). \
-                                  SVPG can potentially detect events of any size but is limited by the \
-                                  signal-to-noise ratio in the input alignments. That means that more \
-                                  accurate reads and alignments enable the detection of smaller events. \
-                                  For current PacBio or Nanopore data, we would recommend a minimum size \
-                                  of 40bp or larger.')
+                            default=50,
+                            help='Minimum size of SVs to be detected.')
     parser_gaf.add_argument('--max_sv_size',
                             type=int,
-                            default=-1,
-                            help='Maximum SV size to detect include sequence information. Set to -1 for unlimited size.')
+                            default=100000,
+                            help='Maximum size of SVs to be detected. Set to -1 for unlimited size (recommend somatic SV).')
+    parser_gaf.add_argument('--ultra_split_size',
+                            type=int,
+                            default=1000000,
+                            help='Ignore extremely large BNDs from split alignments unless supported by high enough reads,\
+                                  which may be regarded as false-negative intra-chromosomal translocation')
     parser_gaf.add_argument('--noseq',
                             action='store_true',
-                            default=False,
-                            help='Omit sequence information in VCF. Recommended for somatic SV analysis with many large SVs.')
-    parser_gaf.add_argument('-d', '--depth',
-                            type=int,
-                            help='Sequencing depth of this dataset')
+                            help='Disable sequence extraction for SVs. Useful for large SVs to save time and disk space.')
     parser_gaf.add_argument('-s', '--min_support',
                             type=int,
-                            help='Minimal number of supporting reads for one SV event')
+                            default=2,
+                            help='Minimum read support threshold for SV calling. Adjust based on sequencing depth.')
     parser_gaf.add_argument('--types',
                             type=str,
-                            default="DEL,INS",
+                            default="DEL,INS,DUP,INV,BND",
                             help='SV types to include in output VCF (default: %(default)s). \
-                                  Give a comma-separated list of SV types. The possible SV types are: DEL (deletions), \
-                                  INS (novel insertions)')
+                                  Give a comma-separated list of SV types, like "DEL,INS"')
     parser_gaf.add_argument('--contigs',
                             type=str,
                             nargs='*',
@@ -166,12 +157,10 @@ def parse_arguments(arguments=sys.argv[1:]):
                                            help='Pangenome graph augmentation pipeline')
     parser_augment.add_argument('--working_dir',
                                 type=os.path.abspath,
-                                help='Working and output directory. \
-                                      Existing files in the directory are overwritten. \
-                                      If the directory does not exist, it is created.')
+                                help='Specify the working directory to store output files.')
     parser_augment.add_argument('--ref',
                                 type=str,
-                                help='Liner reference genome file that the long reads were aligned to (.fa)')
+                                help='The reference genome used for pangenome construction (.fa), is also serves as the coordinate system for SVPG’s SV call output.')
     parser_augment.add_argument('--gfa',
                                 type=str,
                                 help='Pangenome reference file that the long reads were aligned to (.gfa)')
@@ -186,36 +175,30 @@ def parse_arguments(arguments=sys.argv[1:]):
     parser_augment.add_argument('-t', '--num_threads',
                                 type=int,
                                 default=16,
-                                help='Number of threads to use')
+                                help='Number of threads to use for parallel processing.')
     parser_augment.add_argument('--read',
                                 type=str,
-                                default='ont',
-                                help='Platform type for sequencing data, either "ont", "hifi" or "clr"  (default: %(default)s)')
+                                default='hifi',
+                                help='Type of sequencing reads: `ont` for Oxford Nanopore, `hifi` for PacBio HiFi.')
     parser_augment.add_argument('--sample_list',
                                 type=str,
                                 default='',
-                                help='Provide a .tsv file listing the paths to FASTA files of new samples. \
+                                help='Path to a TSV file listing the paths to FASTA files of new samples. if not provided, all FASTA files under `working_dir` will be processed.\
                                 For example, the sample.tsv file may look like(sample_1 name ≠ sample_2 name): /path/to/sample_1.fasta\n/path/to/sample_2.fasta')
     parser_augment.add_argument('--min_mapq',
                                 type=int,
                                 default=20,
-                                help='Minimum mapping quality of reads to consider (default: %(default)s). \
-                                        Reads with a lower mapping quality are ignored.')
+                                help='Minimum mapping quality for reads to be considered in SV detection.')
     parser_augment.add_argument('--min_sv_size',
                                 type=int,
-                                default=40,
-                                help='Minimum SV size to detect (default: %(default)s). \
-                                      SVPG can potentially detect events of any size but is limited by the \
-                                      signal-to-noise ratio in the input alignments. That means that more \
-                                      accurate reads and alignments enable the detection of smaller events. \
-                                      For current PacBio or Nanopore data, we would recommend a minimum size \
-                                      of 40bp or larger.')
+                                default=50,
+                                help='Minimum size of SVs to be detected.')
     parser_augment.add_argument('--max_sv_size',
                                 type=int,
                                 default=-1,
-                                help='Maximum SV size to detect include sequence information. Set to -1 for unlimited size.')
+                                help='Minimum size of SVs to be detected. Set to -1 for unlimited size (recommend somatic SV).')
     parser_augment.add_argument('--skip_call',
                                 action='store_true',
-                                help='Skip call SVs and only graph augment')
+                                help='Skip SV calling step and directly proceed to graph augmentation using existing VCF files in the working directory. ')
 
     return parser.parse_args(arguments)

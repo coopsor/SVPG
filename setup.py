@@ -5,7 +5,7 @@ with open('README.md') as f:
 
 setup(
     name='svpg',
-    version='1.2.0',
+    version='1.3.0',
     description='A pangenome-based structural variant caller',
     author='henghu',
     author_email='hhengwork@gmail.com',
@@ -17,7 +17,9 @@ setup(
     install_requires=[
         'numpy>=1.26.4',
         'pysam>=0.22',
-        'scipy>=1.13.1'
+        'scipy>=1.13.1',
+        'pyabpoa>=1.5.4',
+        # 'mappy>=2.28',
     ],
     entry_points={
         'console_scripts': [

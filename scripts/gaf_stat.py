@@ -3,6 +3,9 @@ import sys
 import numpy as np
 from collections import defaultdict, Counter
 
+""""
+Analyze GAF alignment files and generate statistics.
+"""
 
 class Gaf:
     def __init__(self):

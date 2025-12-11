@@ -41,7 +41,7 @@ def analyze_cigar_indel(tuples, min_length, is_gaf=False):
     Otherwise, expects BAM-style tuples (op, length).
     """
     pos_ref = 0
-    pos_read = 0
+    pos_read = 0  #
     indels = []
 
     # BAM CIGAR code to string mapping
@@ -79,16 +79,16 @@ def analyze_cigar_indel(tuples, min_length, is_gaf=False):
 
     return indels
 
-def merge_cigar(sigs, read_type, min_indel_length=300):
+
+def merge_cigar(sigs, max_merge=500):
     """
        Merge nearby SV signatures of the same type if they are within max_merge distance
        and each is longer than min_indel_length.
        """
     i = 0
-    max_merge = 1000 if read_type == 'hifi' else 500
     while i < len(sigs) - 1:
-        diff = abs(sigs[i + 1].start - sigs[i].start)
-        if (sigs[i].type == sigs[i + 1].type and diff <= max_merge and sigs[i].svlen >= min_indel_length and sigs[i + 1].svlen >= min_indel_length):
+        diff = abs(sigs[i + 1].start - sigs[i].start) if sigs[i].type == 'INS' else abs(sigs[i + 1].start - sigs[i].end)
+        if (sigs[i].type == sigs[i + 1].type and diff <= max_merge):
             sigs[i].end += sigs[i + 1].svlen
             sigs[i].svlen += sigs[i + 1].svlen
             sigs.pop(i + 1)
@@ -96,6 +96,46 @@ def merge_cigar(sigs, read_type, min_indel_length=300):
             i += 1
 
     return sigs
+
+def chr_to_sort_key(chr_name):
+    if chr_name.startswith("chr"):
+        chr_name = chr_name[3:]
+    if chr_name.isdigit():
+        return int(chr_name)
+    elif chr_name in ["X", "Y", "M", "MT"]:
+        return {"X": 23, "Y": 24, "M": 25, "MT": 25}[chr_name]
+    else:
+        return None
+
+def filter_vcf(input_vcf, output_vcf):
+    # 匹配模式：30个或以上的A/T，或重复≥10次的AG
+    repeat_pattern = re.compile(r'(A{20,}|T{20,}|(TC){20,}|(AG){20,})')#GT,AT
+
+    with open(input_vcf) as infile, open(output_vcf, 'w') as outfile:
+        for line in infile:
+            # 写入头部行
+            if line.startswith('#'):
+                outfile.write(line)
+                continue
+
+            fields = line.strip().split('\t')
+            info = fields[7]
+            ref = fields[3]
+
+            # 获取SVTYPE与SVLEN
+            svtype_match = re.search(r'SVTYPE=([^;]+)', info)
+            svlen_match = re.search(r'SVLEN=([-\d]+)', info)
+            if not svtype_match or not svlen_match:
+                continue  # 没有SV信息，跳过
+
+            svtype = svtype_match.group(1)
+            svlen = abs(int(svlen_match.group(1)))
+
+            # 过滤条件
+            if svtype == "DEL" and svlen < 100:
+                # REF包含长重复序列
+                if repeat_pattern.search(ref):
+                    return
 
 def sorted_nicely(vcf_entries):
     """ Sort the given vcf entries (in the form ((contig, start, end), vcf_string, sv_type)) in the way that humans expect.

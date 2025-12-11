@@ -1,8 +1,9 @@
 import re
 from collections import defaultdict
+import numpy as np
 
-from svpg.SVSignature import SignatureDeletion, SignatureInsertion
-from svpg.util import analyze_cigar_indel, merge_cigar
+from svpg.SVSignature import SignatureDeletion, SignatureInsertion, SignatureDuplicationTandem, SignatureInversion, SignatureTranslocation
+from svpg.util import analyze_cigar_indel, merge_cigar, chr_to_sort_key
 
 CIGAR_PATTERN = re.compile(r'(\d+)([MIDNSHP=X])')
 
@@ -40,6 +41,7 @@ def parse_gaf_line(tokens, gfa_node):
     gafline.path = re.findall(r'[<>][^<>]+', tokens[5])
     try:
         gafline.strand = '+' if gafline.path[0][0] == '>' else '-'
+        # gafline.strand = tokens[4]
     except IndexError:
         raise ValueError(f"Please check the GAF file format. SVPG expects standard GAF format, refer to readme for GFA and rGFA format.")
     gafline.contig = gfa_node[gafline.path[0][1:]].contig
@@ -61,23 +63,61 @@ def parse_gaf_line(tokens, gfa_node):
 
     return gafline
 
-def decompose_split(g_list):
+def decompose_split(g_list, gfa_node):
     """Parse GAF record to extract SVs from split_reads."""
     alignment_list, split_signature = [], []
+    g_list = sorted(g_list, key=lambda g: g.query_start)
+
+    # === Filter short alignments at both ends ===
+    zen = len(g_list)
+    for j in range(len(g_list) - 1, -1, -1):
+        y = g_list[j]
+        aln_len = y.query_end - y.query_start
+        if aln_len < 2000:
+            zen = j
+        else:
+            break
+    if zen < 2:
+        return []
+
+    zst = 0
+    for j in range(zen):
+        y = g_list[j]
+        aln_len = y.query_end - y.query_start
+        if aln_len < 2000:
+            zst = j + 1
+        else:
+            break
+    if zen - zst < 2:
+        return []
+
+    g_list = g_list[zst:zen]
     for g in g_list:
-        strand = g.strand
-        ref_start = g.offset + g.path_start
-        ref_end = g.offset + g.path_end
-        q_start = g.query_start
-        q_end = g.query_end
+        if g.contig == 'pan':
+            continue
+        strand_start = g.strand
+        strand_end = '+' if g.path[-1][0] == '>' else '-'
+
+        ref_start = g.offset + g.path_start if strand_start == '+' else g.offset + gfa_node[g.path[0][1:]].len - g.path_start
+        # ref_end = g.offset + g.path_end if strand_end == '+' else g.offset + gfa_node[g.path[-1][1:]].len - g.path_end
+        if strand_end == '+':
+            ref_end = g.offset + g.path_end
+        else:
+            if len(g.path) == 1:
+                ref_end = g.offset + gfa_node[g.path[-1][1:]].len - g.path_end
+            else:
+                ref_end = gfa_node[g.path[-1][1:]].offset + gfa_node[g.path[-1][1:]].len - (g.path_end - sum(gfa_node[n[1:]].len for n in g.path[:-1]))
+        ref_start, ref_end = min(ref_start, ref_end), max(ref_start, ref_end)
+
         alignment_dict = {
             'read_name': g.query_name,
-            'q_start': q_start,
-            'q_end': q_end,
+            'q_start': g.query_start,
+            'q_end': g.query_end,
             'ref_id': g.contig,
             'ref_start': ref_start,
             'ref_end': ref_end,
-            'is_reverse': strand == '-'
+            'is_reverse_start': strand_start == '-',
+            'is_reverse_end': strand_end == '-',
         }
         alignment_list.append(alignment_dict)
     sorted_alignment_list = sorted(alignment_list, key=lambda aln: (aln['q_start'], aln['q_end']))
@@ -85,28 +125,18 @@ def decompose_split(g_list):
 
     for alignment_current, alignment_next in zip(sorted_alignment_list[:-1], sorted_alignment_list[1:]):
         distance_on_read = alignment_next['q_start'] - alignment_current['q_end']
-        if not alignment_current['is_reverse']:
-            distance_on_reference = alignment_next['ref_start'] - alignment_current['ref_end']
-            if alignment_next['is_reverse']:  # INV:+-
-                if alignment_current['ref_end'] > alignment_next['ref_end']:
-                    distance_on_reference = alignment_next['ref_end'] - alignment_current['ref_start']
-                else:
-                    distance_on_reference = alignment_current['ref_end'] - alignment_next['ref_start']
-        else:
-            continue
-            # distance_on_reference = alignment_current['ref_start'] - alignment_next['ref_end']
-            # if not alignment_next['is_reverse']:  # INV:-+
-            #     if alignment_current['ref_end'] > alignment_next['ref_end']:
-            #         distance_on_reference = alignment_next['ref_end'] - alignment_current['ref_start']
-            #     else:
-            #         distance_on_reference = alignment_current['ref_end'] - alignment_next['ref_start']
-        deviation = distance_on_read - distance_on_reference
-
+        ref_chr = alignment_current['ref_id']
+        read_name = alignment_current['read_name']
         if alignment_current['ref_id'] == alignment_next['ref_id']:
-            if alignment_current['is_reverse'] == alignment_next['is_reverse']:
+            if alignment_current['is_reverse_end'] == alignment_next['is_reverse_start']:
+                if not alignment_current['is_reverse_end'] and not alignment_next['is_reverse_start']:  # ++
+                    distance_on_reference = alignment_next['ref_start'] - alignment_current['ref_end']
+                else:  # --
+                    distance_on_reference = alignment_current['ref_start'] - alignment_next['ref_end']
                 if distance_on_reference >= -50:
+                    deviation = distance_on_read - distance_on_reference
                     if deviation >= 50:  # INS
-                        if not alignment_current['is_reverse']:
+                        if not alignment_current['is_reverse_end']:
                             if not ultra_ins_flag:
                                 start = alignment_current['ref_end']
                             else:
@@ -119,9 +149,9 @@ def decompose_split(g_list):
                         split_signature.append(
                             SignatureInsertion(alignment_current['ref_id'], start, deviation, "suppl",
                                                alignment_current['read_name'], alt_seq='<INS>',
-                                               qry_start=alignment_current['q_end'], qry_end=alignment_next['q_start']))
+                                               ))
                     elif deviation <= -50:  # DEL
-                        if not alignment_current['is_reverse']:
+                        if not alignment_current['is_reverse_end']:
                             start = alignment_current['ref_end']
                         else:
                             start = alignment_next['ref_end']
@@ -129,6 +159,117 @@ def decompose_split(g_list):
                             SignatureDeletion(alignment_current['ref_id'], start, -deviation, "suppl", alignment_current['read_name']))
                     else:
                         continue
+                else:  # DUP
+                    # if distance_on_reference <= -options.min_sv_size:
+                    if not alignment_current['is_reverse_end']:
+                        start = alignment_next['ref_start']
+                        end = alignment_current['ref_end']
+                    else:
+                        start = alignment_current['ref_start']
+                        end = alignment_next['ref_end']
+
+                    sv_sig = (alignment_current['ref_id'], start, end, "suppl", alignment_current['read_name'])
+                    split_signature.append(SignatureDuplicationTandem(*sv_sig))
+            else:  # INV
+                mid_c = (alignment_current['ref_start'] + alignment_current['ref_end']) / 2
+                c_len = alignment_current['ref_end'] - alignment_current['ref_start']
+                if not alignment_current['is_reverse_end']:  # +-
+                    overlap = min(alignment_current['ref_end'], alignment_next['ref_end']) - max(
+                        alignment_current['ref_start'], alignment_next['ref_start'])
+
+                    # case1: next entirely left
+                    if alignment_next['ref_end'] <= alignment_current['ref_start'] - 5:
+                        start, end = alignment_next['ref_end'], alignment_current['ref_end']
+                        label = 'left_rev'
+                        strand1, strand2 = 'rev', 'fwd'
+                    # case2: right-half(inv) overlap
+                    elif overlap > 0 and alignment_next['ref_end'] > mid_c and overlap / c_len >= 0.5:
+                        start, end = min(alignment_next['ref_end'], alignment_current['ref_end']), max(alignment_next['ref_end'], alignment_current['ref_end'])
+                        label = 'left_rev_foldback'
+                        strand1, strand2 = 'rev', 'fwd'
+                    # case3: left-half overlap
+                    elif overlap > 0 and alignment_next['ref_start'] < mid_c and overlap / c_len >= 0.5:
+                        start, end = min(alignment_next['ref_end'], alignment_current['ref_end']), max(alignment_next['ref_end'], alignment_current['ref_end'])
+                        label = 'left_fwd_foldback'
+                        strand1, strand2 = 'fwd', 'rev'
+                    # case4: next entirely right
+                    elif alignment_next['ref_start'] >= alignment_current['ref_end'] + 5:
+                        start, end = alignment_current['ref_end'], alignment_next['ref_end']
+                        label = 'left_fwd'
+                        strand1, strand2 = 'fwd', 'rev'
+                    else:
+                        continue
+                else:
+                    overlap = min(alignment_current['ref_end'], alignment_next['ref_end']) - max(
+                        alignment_current['ref_start'], alignment_next['ref_start'])
+                    # case1: current entirely left
+                    if alignment_next['ref_start'] >= alignment_current['ref_end'] + 5:
+                        start, end = alignment_current['ref_start'], alignment_next['ref_start']
+                        label = 'right_fwd'
+                        strand1, strand2 = 'rev', 'fwd'
+                    # case2: foldback-right (right half overlap)
+                    elif overlap > 0 and alignment_next['ref_end'] > mid_c and overlap / c_len >= 0.5:
+                        start, end = min(alignment_next['ref_start'], alignment_current['ref_start']), max(alignment_next['ref_start'], alignment_current['ref_start'])
+                        label = 'right_fwd_foldback'
+                        strand1, strand2 = 'rev', 'fwd'
+                    # case3: foldback-left (left half overlap)
+                    elif overlap > 0 and alignment_next['ref_start'] < mid_c and overlap / c_len >= 0.5:
+                        start, end = min(alignment_next['ref_start'], alignment_current['ref_start']), max(alignment_next['ref_start'], alignment_current['ref_start'])
+                        label = 'right_rev_foldback'
+                        strand1, strand2 = 'fwd', 'rev'
+                    # case4: current entirely right
+                    elif alignment_next['ref_end'] <= alignment_current['ref_start'] - 5:
+                        start, end = alignment_next['ref_start'], alignment_current['ref_start']
+                        label = 'right_rev'
+                        strand1, strand2 = 'fwd', 'rev'
+                    else:
+                        continue
+
+                svsize = end - start
+                if svsize >= 50:
+                    sv_sig = (ref_chr, start, end, "suppl", read_name, label)
+                    split_signature.append(SignatureInversion(*sv_sig))
+
+        else:  # TRA
+            ref_chr_next = alignment_next['ref_id']
+            ref_chr_key = chr_to_sort_key(ref_chr)
+            ref_chr_next_key = chr_to_sort_key(ref_chr_next)
+            if not ref_chr_key or not ref_chr_next_key:
+                continue
+            if alignment_current['is_reverse_end'] == alignment_next['is_reverse_start']:
+                #  (++, --)
+                if not alignment_current['is_reverse_end']:  # ++
+                    strand1, strand2 = 'fwd', 'fwd'
+                    start = alignment_current['ref_end']
+                    end = alignment_next['ref_start']
+                else:  # --
+                    strand1, strand2 = 'rev', 'rev'
+                    start = alignment_current['ref_start']
+                    end = alignment_next['ref_end']
+            else:
+                # (+-, -+)
+                if not alignment_current['is_reverse_end']:  # +-
+                    strand1, strand2 = 'fwd', 'rev'
+                    start = alignment_current['ref_end']
+                    end = alignment_next['ref_end']
+                else:  # -+
+                    strand1, strand2 = 'rev', 'fwd'
+                    start = alignment_current['ref_start']
+                    end = alignment_next['ref_start']
+
+            # --- ensure consistent chr order ---
+            if ref_chr_key > ref_chr_next_key:
+                ref_chr, ref_chr_next = ref_chr_next, ref_chr
+                start, end = end, start
+                if (strand1, strand2) == ('fwd', 'fwd'):
+                    strand1, strand2 = 'rev', 'rev'
+                elif (strand1, strand2) == ('rev', 'rev'):
+                    strand1, strand2 = 'fwd', 'fwd'
+                else:
+                    strand1, strand2 = strand1, strand2
+
+            sv_sig = (ref_chr, start, strand1, ref_chr_next, end, strand2, "suppl", read_name)
+            split_signature.append(SignatureTranslocation(*sv_sig))
 
     return split_signature
 
@@ -144,13 +285,6 @@ def pan_node_offset(pan_node, node_list, gfa_node):
         pan_len += gfa_node[node_id].len
     else:
         return None
-
-def check_continuity(node_list):
-    node_num = [int(s[2:]) for s in node_list][::-1]
-    if all(node_num[i] - node_num[i - 1] == 1 for i in range(1, len(node_num))):
-        return False
-    else:
-        return node_list
 
 def extract_tsd_alt(ds_seq):
     # ds_seq: '[aatttttgtattt]ttaa...'
@@ -168,16 +302,25 @@ def get_node_index_for_pos(pos, cum_lengths):
             return i
     return None
 
-def decompose_cigars(g, gfa_node, min_indel_length=40):
+def decompose_cigars(g, gfa_node, options, min_indel_length=50):
     sigs = []
     node_list = g.path  # ['>s1','>s2']
+
     first_node = node_list[0]
     first_node_len = gfa_node[first_node[1:]].len
     if gfa_node[first_node[1:]].sr != 0:
-        node_result = pan_node_offset(first_node, node_list, gfa_node)
-        if node_result:
-            g.contig, g.offset = node_result
-        else:  # node list is composed entirely of pan_nodes
+        g.contig = 'pan'
+        return []
+
+    hap_contigs = set()
+    for node in node_list:
+        node_contig = gfa_node[node[1:]].contig
+        hap_contigs.add(node_contig)
+    if options.read == 'hifi':
+        if g.strand == '-' and len(hap_contigs) >= 2:## if g.strand == '-':return []
+            return []
+    else:
+        if len(hap_contigs) >= 3:
             return []
 
     parsed_cigar = CIGAR_PATTERN.findall(g.cigar)
@@ -217,8 +360,6 @@ def decompose_cigars(g, gfa_node, min_indel_length=40):
         if g.strand == '+':  # first node is forward
             start = global_ref + pos_ref
         else:
-            # if check_continuity(node_list):
-            #     return []
             if pos_ref < first_node_len - g.path_start:  # the indel is in first node
                 global_ref = g.offset + (first_node_len - g.path_start)
                 if typ == 'INS':
@@ -266,10 +407,19 @@ def decompose_cigars(g, gfa_node, min_indel_length=40):
 
     return sigs
 
+def calculate_euclidean_distance_sigs(sig1, sig2, weights=[1, 5]):
+    """Calculate Euclidean distance between two SV signatures."""
+    sig1 = np.array(sig1, dtype=float)
+    sig2 = np.array(sig2, dtype=float)
+
+    diff = sig2 - sig1
+    dist = np.sqrt(np.sum(weights * diff ** 2, axis=1))
+
+    return dist
+
 
 def read_gaf(gaf_chunk, gfa_node, options):
     """Parse SVsignatures GAF record to extract SVs."""
-    inconsist_read = []
     sv_signatures = []
     read_dict = {}
     j, k, e = 0, 0, 0
@@ -280,8 +430,10 @@ def read_gaf(gaf_chunk, gfa_node, options):
             continue
 
         g = parse_gaf_line(tokens, gfa_node)
+        bam_pos = g.pos.split(':')
+        bam_len = int(bam_pos[2]) - int(bam_pos[1])
+
         if g.mapping_quality < options.min_mapq:
-            j += 1
             continue
 
         if tokens[0] in read_dict:
@@ -305,12 +457,12 @@ def read_gaf(gaf_chunk, gfa_node, options):
                     else:  # ['<s3', '>s1']
                         start = gfa_node[node_next[1:]].offset
                         end = gfa_node[node_current[1:]].offset
-                    sigs.append(SignatureDeletion(g.contig, start, end - start, "ref_split", g.query_name, node_ls=split_node_temp))
+                    sigs.append(SignatureDeletion(g.contig, start, end - start, "ref_split", g.query_name, pan_node=split_node_temp))
 
-            sigs_cigar = decompose_cigars(g, gfa_node, min_sv_size)
+            sigs_cigar = decompose_cigars(g, gfa_node, options, min_sv_size)
             sigs.extend(sigs_cigar)
         else:
-            sigs_liner_pan = decompose_cigars(g, gfa_node, min_indel_length=10)
+            sigs_liner_pan = decompose_cigars(g, gfa_node, options, min_indel_length=10)
             sigs_cigar = [sig for sig in sigs_liner_pan if sig.svlen >= min_sv_size]
 
             linear_index = [i for i, x in enumerate(node_sr) if x == 0]
@@ -330,7 +482,7 @@ def read_gaf(gaf_chunk, gfa_node, options):
                 split_len = sum([gfa_node['s' + str(node)].len for node in split_node_temp])
                 pan_node = node_list[node_list.index(node_current) + 1:node_list.index(node_next)]
 
-                # map to a pan node: insersion
+                # map to a pan node: insertion
                 if pan_node:
                     length = sum([gfa_node[pan[1:]].len for pan in pan_node])
                     for indel in sigs_liner_pan:
@@ -341,7 +493,7 @@ def read_gaf(gaf_chunk, gfa_node, options):
                                 length += indel.svlen
                     if length - split_len >= min_sv_size:
                         alt_seq = ''.join([gfa_node[node[1:]].sequence for node in pan_node])
-                        sigs.append(SignatureInsertion(g.contig, start, length - split_len, "ref_split", g.query_name, alt_seq=alt_seq, node_ls=pan_node))
+                        sigs.append(SignatureInsertion(g.contig, start, length - split_len, "ref_split", g.query_name, alt_seq=alt_seq, pan_node=pan_node))
 
                 if len(split_node_temp) > 0:  # map to a missing linear nodes: deletion
                     if sum([gfa_node['s' + str(node)].len for node in split_node_temp]) < min_sv_size:
@@ -357,40 +509,31 @@ def read_gaf(gaf_chunk, gfa_node, options):
 
             sigs = sigs+sigs_cigar
 
-        sigs_initial = [sig for sig in sigs if sig.type == g.type]
-        sigs = merge_cigar(sigs_initial, options.read)
+        sigs = [sig for sig in sigs if sig.type == g.type]
 
-        bam_pos = g.pos.split(':')
-        bam_len = int(bam_pos[2]) - int(bam_pos[1])
         sigs_ = []
         # Find the closest SV record
         if len(sigs) > 1:
-            min_distance = float("inf")
-            for sig in sigs:
-                sig_distance = abs(int(bam_pos[1]) - sig.start) + abs(int(bam_pos[2]) - sig.end)
-                if sig_distance < min_distance:
-                    min_distance = sig_distance
-                    sigs_ = [sig]
+            dis = calculate_euclidean_distance_sigs([bam_pos[1], bam_len], [[sig.start, sig.svlen] for sig in sigs])
+            min_index = np.argmin(dis)
+            sigs_ = [sigs[min_index]]
         elif len(sigs) == 1:
             sigs_ = sigs
 
-        if sigs_ and min(sigs_[0].svlen, bam_len) / max(sigs_[0].svlen, bam_len) < 0.5:  # todo:remap
-            if tokens[0].split('@')[-1] == 'merged_indel':
-                pass
+        if not sigs_ or (sigs_ and min(sigs_[0].svlen, bam_len) / max(sigs_[0].svlen, bam_len) < 0.7):
+            if g.type == "INS":
+                sv_signatures.append(SignatureInsertion(bam_pos[0], int(bam_pos[1]), bam_len, "inconsistent", g.query_name, alt_seq="<INS>"))
             else:
-                inconsist_read.append(tokens[0])
-                k += 1
-                continue
+                sv_signatures.append(SignatureDeletion(bam_pos[0], int(bam_pos[1]), bam_len, "inconsistent", g.query_name))
+            continue
 
-        sv_signatures.extend(sigs)
+        sv_signatures.extend(sigs_)
 
     for key, value in read_dict.items():
         if len(value) > 1:
             e += 1
-            var_split = decompose_split(value)
+            var_split = decompose_split(value, gfa_node)
             sv_signatures.extend(var_split)
-
-    print(f"low_mapq: {j}, inconsistent_read: {k},  split_read: {e}")
 
     return sv_signatures
 
@@ -413,16 +556,15 @@ def read_gaf_pan(gaf_chunk, gfa_node, options):
         if g.query_end - g.query_start < g.query_length * 0.7:  # filter cigar in short alignments
             continue
 
-        sigs = decompose_cigars(g, gfa_node, options.min_sv_size)
+        sigs = decompose_cigars(g, gfa_node, options)
         if len(sigs) > 1 and len(sigs) > g.query_length * 1e-4 * 2:
             continue
-        sigs_merged = merge_cigar(sigs, options.read)
+        sigs_merged = merge_cigar(sigs, max_merge=options.max_merge_threshold)
         sv_signatures.extend(sigs_merged)
 
     for key, value in read_dict.items():
         if len(value) > 1:
-            var_split = decompose_split(value)
+            var_split = decompose_split(value, gfa_node)
             sv_signatures.extend(var_split)
 
     return sv_signatures
-
