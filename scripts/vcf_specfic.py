@@ -33,7 +33,7 @@ def parse_vcf(vcf_file):
             #     continue
             # svtype = m.group(1)
             line_upper = line.upper()
-            # --- 判断SV类型 ---
+
             svtype = get_svtype(line)
             sv_records.setdefault(chrom, {}).setdefault(svtype, []).append(line)
     return sv_records
