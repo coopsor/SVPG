@@ -218,7 +218,7 @@ def _msa_consensus_for_cluster(cluster_seqs, aligner=None):
     aln_result = aligner.msa(list(seqs), out_msa=True, out_cons=True, max_n_cons=1)
     return aln_result.cons_seq
 
-def consolidate_clusters_unilocal(clusters, ref_chrom, options, cons = True):
+def consolidate_clusters_unilocal(clusters, ref_chrom, options, cons = False):
     """Consolidate clusters to a list of (type, contig, mean start, mean end, cluster size, members) tuples."""
     min_sv_length, noseqs = options.min_sv_size, options.noseq
     max_sv_length = float('inf') if options.max_sv_size == -1 else options.max_sv_size

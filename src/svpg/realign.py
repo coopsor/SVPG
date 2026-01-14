@@ -2,9 +2,10 @@ import pyabpoa
 from collections import defaultdict
 import mappy as mp
 from sklearn.cluster import KMeans
+from sklearn.exceptions import ConvergenceWarning
 import warnings
 import numpy as np
-from sklearn.exceptions import ConvergenceWarning
+
 
 from svpg.output_vcf import Candidate
 

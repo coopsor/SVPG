@@ -281,19 +281,20 @@ def main():
                                sig.pos_read - adjac_distance:sig.pos_read + sig.svlen + adjac_distance] if sig.pos_read else sig.read_seq
 
             ref_suppl1, ref_suppl2 = '', ''
+            svtype = sig.type
             if sig.pos_read < adjac_distance:
                 try:
                     ref_suppl1 = ref_genome.fetch(sig.contig, sig.start - adjac_distance, sig.start - sig.pos_read)
                 except ValueError:
                     ref_suppl1 = ''
-            if sig.type == 'DEL' and sig.pos_read + adjac_distance > len(sig.read_seq):  # 窗口右端超出read末端
+            if svtype == 'DEL' and sig.pos_read + adjac_distance > len(sig.read_seq):
                 try:
                     ref_suppl2 = ref_genome.fetch(sig.contig, sig.end + (len(sig.read_seq) - sig.pos_read),
                                                   sig.end + adjac_distance)
                 except ValueError:
                     ref_suppl2 = ref_genome.fetch(sig.contig, sig.end + (len(sig.read_seq) - sig.pos_read),
                                                   len(ref_genome.fetch(sig.contig)))
-            elif sig.type == 'INS' and sig.pos_read + sig.svlen + adjac_distance > len(sig.read_seq):
+            elif svtype == 'INS' and sig.pos_read + sig.svlen + adjac_distance > len(sig.read_seq):
                 try:
                     ref_suppl2 = ref_genome.fetch(sig.contig,
                                                   sig.start + len(sig.read_seq) - sig.pos_read - sig.svlen,
@@ -302,9 +303,10 @@ def main():
                     ref_suppl2 = ref_genome.fetch(sig.contig,
                                                   sig.start + len(sig.read_seq) - sig.pos_read - sig.svlen,
                                                   len(ref_genome.fetch(sig.contig)))
+
             read_seq = ref_suppl1 + read_seq + ref_suppl2
             pos_ref = str(sig.contig) + ':' + str(sig.start) + ':' + str(sig.end)
-            read_info = f"{sig.read_name}@{sig.type}@{pos_ref}"
+            read_info = f"{sig.read_name}@{svtype}@{pos_ref}@{sig.alt_seq}" if svtype == 'INS' else f"{sig.read_name}@{svtype}@{pos_ref}"
             fasta_file.write(f'>{read_info}\n{read_seq}\n')
 
         fasta_file.close()
@@ -318,23 +320,25 @@ def main():
 
         logging.info("*************** Collect signatures from pangenome-reference ***************")
 
-        with open(options.working_dir + f'/{sig_read}.gaf', 'rb') as f:
-            for chunk_index, lines in enumerate(read_in_chunks(f, chunk_size=200000000)):
-                logging.info(f"Processing chunks {chunk_index + 1}")
-                pan_signatures.extend(multi_process(len(lines), 'read_gaf', (lines, gfa_node)))
-                logging.info(f"Processed chunks {chunk_index + 1}")
+        pan_signatures = read_gaf(gfa_node, options)
+        # with open(options.working_dir + f'/{sig_read}.gaf', 'rb') as f:
+        #     for chunk_index, lines in enumerate(read_in_chunks(f, chunk_size=200000000)):
+        #         logging.info(f"Processing chunks {chunk_index + 1}")
+        #         pan_signatures.extend(multi_process(len(lines), 'read_gaf', (lines, gfa_node)))
+        #         logging.info(f"Processed chunks {chunk_index + 1}")
 
     elif options.sub == 'graph-call':
         logging.info("MODE: graph-call")
         logging.info("INPUT: {0}".format(os.path.abspath(options.gaf)))
         logging.info("*************** Collect SV signatures from pangenome ***************")
 
-        with open(options.gaf, 'rb') as f:
-            for chunk_index, lines in enumerate(read_in_chunks(f, chunk_size=200000000)):
-                logging.info(f"Processing chunk {chunk_index + 1}")
-                pan_signatures.extend(multi_process(len(lines), 'read_gaf_pan', (lines, gfa_node)))
-                logging.info(f"Processed chunks {chunk_index + 1}")
-        # sig_read = 'signatures_tumor'
+        pan_signatures = read_gaf_pan(gfa_node, options)
+        # with open(options.gaf, 'rb') as f:
+        #     for chunk_index, lines in enumerate(read_in_chunks(f, chunk_size=200000000)):
+        #         logging.info(f"Processing chunk {chunk_index + 1}")
+        #         pan_signatures.extend(multi_process(len(lines), 'read_gaf_pan', (lines, gfa_node)))
+        #         logging.info(f"Processed chunks {chunk_index + 1}")
+        sig_read = 'signatures_test'
     elif options.sub == 'augment':
         logging.info("MODE: augment")
         logging.info("*************** Collect SVs from pangenome ***************")
@@ -462,15 +466,16 @@ def main():
     insertion_signatures = [ev for ev in pan_signatures if ev.type == "INS"]
     duplication_signatures = [ev for ev in pan_signatures if ev.type == "DUP"]
     inversion_signatures = [ev for ev in pan_signatures if ev.type == "INV"]
-    bnd_signatures = [ev for ev in pan_signatures if ev.type == "BND"]
+    breakend_signatures = [ev for ev in pan_signatures if ev.type == "BND"]
+
     logging.info("Found {0} signatures for deleted regions.".format(len(deletion_signatures)))
     logging.info("Found {0} signatures for inserted regions.".format(len(insertion_signatures)))
     logging.info("Found {0} signatures for duplicated regions.".format(len(duplication_signatures)))
     logging.info("Found {0} signatures for inverted regions.".format(len(inversion_signatures)))
-    logging.info("Found {0} signatures for translated regions.".format(len(bnd_signatures)))
+    logging.info("Found {0} signatures for translated regions.".format(len(breakend_signatures)))
 
     pan_clusters = []
-    for element_signature in [deletion_signatures, insertion_signatures, duplication_signatures, inversion_signatures, bnd_signatures]:
+    for element_signature in [deletion_signatures, insertion_signatures, duplication_signatures, inversion_signatures, breakend_signatures]:
         if not element_signature:
             continue
         signature_bin, bin_depth = form_bins(element_signature, 1000)
@@ -497,17 +502,18 @@ def main():
         if contig in options.contigs:
             ref_chrom_seq = ref_genome.fetch(contig)
             sv_candidate.extend(sorted(
-                consolidate_clusters_unilocal(chrom_results[contig], ref_chrom_seq, options, cons=True),
+                consolidate_clusters_unilocal(chrom_results[contig], ref_chrom_seq, options, cons=options.alt_consensus),
                 key=lambda cluster: (cluster.contig, cluster.start)))
 
     deletion_candidates = [i for i in sv_candidate if i.type == 'DEL']
     insertion_candidates = [i for i in sv_candidate if i.type == 'INS']
     duplication_candidates = [i for i in sv_candidate if i.type == 'DUP']
-    bnd_candidates = [i for i in sv_candidate if i.type == 'BND']
+    breakend_candidates = [i for i in sv_candidate if i.type == 'BND']
+
     logging.info("Final deletion candidates: {0}".format(len(deletion_candidates)))
     logging.info("Final insertion candidates: {0}".format(len(insertion_candidates)))
     logging.info("Final duplication candidates: {0}".format(len(duplication_candidates)))
-    logging.info("Final BND candidates: {0}".format(len(bnd_candidates)))
+    logging.info("Final breakend candidates: {0}".format(len(breakend_candidates)))
 
     if options.sub == 'call' and not options.skip_genotype:
         logging.info("********************************* GENOTYPE ********************************")
@@ -517,8 +523,8 @@ def main():
         insertion_candidates = multi_process(len(insertion_candidates), 'genotype', (insertion_candidates, "INS"))
         logging.info("Genotyping duplications..")
         duplication_candidates = multi_process(len(duplication_candidates), 'genotype', (duplication_candidates, "DUP"))
-        logging.info("Genotyping BNDs..")
-        bnd_candidates = multi_process(len(bnd_candidates), 'genotype', (bnd_candidates, "BND"))
+        logging.info("Genotyping breakends..")
+        breakend_candidates = multi_process(len(breakend_candidates), 'genotype', (breakend_candidates, "BND"))
 
     if options.sub == 'call' and options.realign:
         deletion_candidates_recall = [i for i in recalled_sv if i.type == 'DEL']
@@ -529,7 +535,7 @@ def main():
     write_final_vcf(deletion_candidates,
                     insertion_candidates,
                     duplication_candidates,
-                    bnd_candidates,
+                    breakend_candidates,
                     ref_genome.references,
                     ref_genome.lengths,
                     options)

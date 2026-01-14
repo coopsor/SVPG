@@ -107,36 +107,6 @@ def chr_to_sort_key(chr_name):
     else:
         return None
 
-def filter_vcf(input_vcf, output_vcf):
-    # 匹配模式：30个或以上的A/T，或重复≥10次的AG
-    repeat_pattern = re.compile(r'(A{20,}|T{20,}|(TC){20,}|(AG){20,})')#GT,AT
-
-    with open(input_vcf) as infile, open(output_vcf, 'w') as outfile:
-        for line in infile:
-            # 写入头部行
-            if line.startswith('#'):
-                outfile.write(line)
-                continue
-
-            fields = line.strip().split('\t')
-            info = fields[7]
-            ref = fields[3]
-
-            # 获取SVTYPE与SVLEN
-            svtype_match = re.search(r'SVTYPE=([^;]+)', info)
-            svlen_match = re.search(r'SVLEN=([-\d]+)', info)
-            if not svtype_match or not svlen_match:
-                continue  # 没有SV信息，跳过
-
-            svtype = svtype_match.group(1)
-            svlen = abs(int(svlen_match.group(1)))
-
-            # 过滤条件
-            if svtype == "DEL" and svlen < 100:
-                # REF包含长重复序列
-                if repeat_pattern.search(ref):
-                    return
-
 def sorted_nicely(vcf_entries):
     """ Sort the given vcf entries (in the form ((contig, start, end), vcf_string, sv_type)) in the way that humans expect.
         e.g. chr10 comes after chr2
