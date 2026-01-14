@@ -32,6 +32,7 @@ def parse_gaf_line(tokens, gfa_node):
         gafline.query_name = bam_tags[0]
         gafline.type = bam_tags[1]
         gafline.pos = bam_tags[2]
+        gafline.bam_seq = bam_tags[-1]
     else:
         gafline.query_name = tokens[0]
 
@@ -44,7 +45,7 @@ def parse_gaf_line(tokens, gfa_node):
         # gafline.strand = tokens[4]
     except IndexError:
         raise ValueError(f"Please check the GAF file format. SVPG expects standard GAF format, refer to readme for GFA and rGFA format.")
-    gafline.contig = gfa_node[gafline.path[0][1:]].contig
+    gafline.contig = gfa_node[gafline.path[0][1:]].contig.split('#')[-1]
     gafline.offset = gfa_node[gafline.path[0][1:]].offset
     gafline.path_length = int(tokens[6])
     gafline.path_start = int(tokens[7])
@@ -93,8 +94,6 @@ def decompose_split(g_list, gfa_node):
 
     g_list = g_list[zst:zen]
     for g in g_list:
-        if g.contig == 'pan':
-            continue
         strand_start = g.strand
         strand_end = '+' if g.path[-1][0] == '>' else '-'
 
@@ -308,9 +307,6 @@ def decompose_cigars(g, gfa_node, options, min_indel_length=50):
 
     first_node = node_list[0]
     first_node_len = gfa_node[first_node[1:]].len
-    if gfa_node[first_node[1:]].sr != 0:
-        g.contig = 'pan'
-        return []
 
     hap_contigs = set()
     for node in node_list:
@@ -418,116 +414,120 @@ def calculate_euclidean_distance_sigs(sig1, sig2, weights=[1, 5]):
     return dist
 
 
-def read_gaf(gaf_chunk, gfa_node, options):
+def read_gaf(gfa_node, options):
     """Parse SVsignatures GAF record to extract SVs."""
     sv_signatures = []
     read_dict = {}
     j, k, e = 0, 0, 0
     min_sv_size = options.min_sv_size
-    for i, line in enumerate(gaf_chunk):
-        tokens = line.strip().split('\t')
-        if tokens[4] == '*':
-            continue
+    with open(options.working_dir + '/signatures.gaf', 'r') as gaf_file:
+        for line in gaf_file:
+            tokens = line.strip().split('\t')
+            if tokens[4] == '*':
+                continue
 
-        g = parse_gaf_line(tokens, gfa_node)
-        bam_pos = g.pos.split(':')
-        bam_len = int(bam_pos[2]) - int(bam_pos[1])
+            g = parse_gaf_line(tokens, gfa_node)
+            if g.mapping_quality < options.min_mapq:
+                continue
 
-        if g.mapping_quality < options.min_mapq:
-            continue
+            node_list = g.path  # ['>s1','>s2','>s3']
+            if gfa_node[node_list[0][1:]].sr != 0:
+                continue
 
-        if tokens[0] in read_dict:
-            read_dict[tokens[0]].append(g)
-        else:
-            read_dict[tokens[0]] = [g]
-
-        node_list = g.path  # ['>s1','>s2','>s3']
-        node_sr = [gfa_node[node[1:]].sr for node in node_list]
-        sigs = []
-
-        if sum(node_sr) == 0:
-            for node_current, node_next in zip(node_list[:-1], node_list[1:]):
-                # map to non-adjacent nodes, ['>s1', '>s3']
-                split_node_temp = list(range(min(int(node_current[2:]), int(node_next[2:])) + 1,
-                                             max(int(node_current[2:]), int(node_next[2:]))))
-                if len(split_node_temp) > 0:
-                    if node_current[0] == '>':  # ['>s1', '>s3']
-                        start = gfa_node[node_current[1:]].offset + gfa_node[node_current[1:]].len
-                        end = gfa_node[node_next[1:]].offset
-                    else:  # ['<s3', '>s1']
-                        start = gfa_node[node_next[1:]].offset
-                        end = gfa_node[node_current[1:]].offset
-                    sigs.append(SignatureDeletion(g.contig, start, end - start, "ref_split", g.query_name, pan_node=split_node_temp))
-
-            sigs_cigar = decompose_cigars(g, gfa_node, options, min_sv_size)
-            sigs.extend(sigs_cigar)
-        else:
-            sigs_liner_pan = decompose_cigars(g, gfa_node, options, min_indel_length=10)
-            sigs_cigar = [sig for sig in sigs_liner_pan if sig.svlen >= min_sv_size]
-
-            linear_index = [i for i, x in enumerate(node_sr) if x == 0]
-            linear_node = [node_list[i] for i in linear_index]
-            for node_current, node_next in zip(linear_node[:-1], linear_node[1:]):
-                if node_current[0] == '>':
-                    start = gfa_node[node_current[1:]].offset + gfa_node[node_current[1:]].len
-                    # Only retaining the cigar SVs of the linear nodes
-                    sigs_cigar = [sig for sig in sigs_cigar if
-                                  not (start <= sig.start <= gfa_node[node_next[1:]].offset)]
-                else:
-                    start = gfa_node[node_next[1:]].offset
-                    sigs_cigar = [sig for sig in sigs_cigar if
-                                  not (start <= sig.start <= gfa_node[node_current[1:]].offset)]
-                split_node_temp = list(range(min(int(node_current[2:]), int(node_next[2:])) + 1,
-                                             max(int(node_current[2:]), int(node_next[2:]))))
-                split_len = sum([gfa_node['s' + str(node)].len for node in split_node_temp])
-                pan_node = node_list[node_list.index(node_current) + 1:node_list.index(node_next)]
-
-                # map to a pan node: insertion
-                if pan_node:
-                    length = sum([gfa_node[pan[1:]].len for pan in pan_node])
-                    for indel in sigs_liner_pan:
-                        if start <= indel.start <= start + length:  # cigar SVs in the pan node
-                            if indel.type == "DEL":
-                                length -= indel.svlen
-                            else:
-                                length += indel.svlen
-                    if length - split_len >= min_sv_size:
-                        alt_seq = ''.join([gfa_node[node[1:]].sequence for node in pan_node])
-                        sigs.append(SignatureInsertion(g.contig, start, length - split_len, "ref_split", g.query_name, alt_seq=alt_seq, pan_node=pan_node))
-
-                if len(split_node_temp) > 0:  # map to a missing linear nodes: deletion
-                    if sum([gfa_node['s' + str(node)].len for node in split_node_temp]) < min_sv_size:
-                        continue
-                    if node_current[0] == '>':
-                        end = gfa_node[node_next[1:]].offset
-                    else:
-                        end = gfa_node[node_current[1:]].offset
-                    if pan_node and length >= min_sv_size:  # the pan node inserted in the middle
-                        end -= length
-                    if end - start >= min_sv_size:
-                        sigs.append(SignatureDeletion(g.contig, start, end - start, "ref_split", g.query_name))
-
-            sigs = sigs+sigs_cigar
-
-        sigs = [sig for sig in sigs if sig.type == g.type]
-
-        sigs_ = []
-        # Find the closest SV record
-        if len(sigs) > 1:
-            dis = calculate_euclidean_distance_sigs([bam_pos[1], bam_len], [[sig.start, sig.svlen] for sig in sigs])
-            min_index = np.argmin(dis)
-            sigs_ = [sigs[min_index]]
-        elif len(sigs) == 1:
-            sigs_ = sigs
-
-        if not sigs_ or (sigs_ and min(sigs_[0].svlen, bam_len) / max(sigs_[0].svlen, bam_len) < 0.7):
-            if g.type == "INS":
-                sv_signatures.append(SignatureInsertion(bam_pos[0], int(bam_pos[1]), bam_len, "inconsistent", g.query_name, alt_seq="<INS>"))
+            if tokens[0] in read_dict:
+                read_dict[tokens[0]].append(g)
             else:
-                sv_signatures.append(SignatureDeletion(bam_pos[0], int(bam_pos[1]), bam_len, "inconsistent", g.query_name))
-            continue
+                read_dict[tokens[0]] = [g]
 
-        sv_signatures.extend(sigs_)
+            node_sr = [gfa_node[node[1:]].sr for node in node_list]
+            sigs = []
+
+            if sum(node_sr) == 0:
+                for node_current, node_next in zip(node_list[:-1], node_list[1:]):
+                    # map to non-adjacent nodes, ['>s1', '>s3']
+                    split_node_temp = list(range(min(int(node_current[2:]), int(node_next[2:])) + 1,
+                                                 max(int(node_current[2:]), int(node_next[2:]))))
+                    if len(split_node_temp) > 0:
+                        if node_current[0] == '>':  # ['>s1', '>s3']
+                            start = gfa_node[node_current[1:]].offset + gfa_node[node_current[1:]].len
+                            end = gfa_node[node_next[1:]].offset
+                        else:  # ['<s3', '>s1']
+                            start = gfa_node[node_next[1:]].offset
+                            end = gfa_node[node_current[1:]].offset
+                        sigs.append(SignatureDeletion(g.contig, start, end - start, "ref_split", g.query_name, pan_node=split_node_temp))
+
+                sigs_cigar = decompose_cigars(g, gfa_node, options, min_sv_size)
+                sigs.extend(sigs_cigar)
+            else:
+                sigs_liner_pan = decompose_cigars(g, gfa_node, options, min_indel_length=10)
+                sigs_cigar = [sig for sig in sigs_liner_pan if sig.svlen >= min_sv_size]
+
+                linear_index = [i for i, x in enumerate(node_sr) if x == 0]
+                linear_node = [node_list[i] for i in linear_index]
+                for node_current, node_next in zip(linear_node[:-1], linear_node[1:]):
+                    if node_current[0] == '>':
+                        start = gfa_node[node_current[1:]].offset + gfa_node[node_current[1:]].len
+                        # Only retaining the cigar SVs of the linear nodes
+                        sigs_cigar = [sig for sig in sigs_cigar if
+                                      not (start <= sig.start <= gfa_node[node_next[1:]].offset)]
+                    else:
+                        start = gfa_node[node_next[1:]].offset
+                        sigs_cigar = [sig for sig in sigs_cigar if
+                                      not (start <= sig.start <= gfa_node[node_current[1:]].offset)]
+                    split_node_temp = list(range(min(int(node_current[2:]), int(node_next[2:])) + 1,
+                                                 max(int(node_current[2:]), int(node_next[2:]))))
+                    split_len = sum([gfa_node['s' + str(node)].len for node in split_node_temp])
+                    pan_node = node_list[node_list.index(node_current) + 1:node_list.index(node_next)]
+
+                    # map to a pan node: insertion
+                    if pan_node:
+                        length = sum([gfa_node[pan[1:]].len for pan in pan_node])
+                        for indel in sigs_liner_pan:
+                            if start <= indel.start <= start + length:  # cigar SVs in the pan node
+                                if indel.type == "DEL":
+                                    length -= indel.svlen
+                                else:
+                                    length += indel.svlen
+                        if length - split_len >= min_sv_size:
+                            alt_seq = ''.join([gfa_node[node[1:]].sequence for node in pan_node])
+                            sigs.append(SignatureInsertion(g.contig, start, length - split_len, "ref_split", g.query_name, alt_seq=alt_seq, pan_node=pan_node))
+
+                    if len(split_node_temp) > 0:  # map to a missing linear nodes: deletion
+                        if sum([gfa_node['s' + str(node)].len for node in split_node_temp]) < min_sv_size:
+                            continue
+                        if node_current[0] == '>':
+                            end = gfa_node[node_next[1:]].offset
+                        else:
+                            end = gfa_node[node_current[1:]].offset
+                        if pan_node and length >= min_sv_size:  # the pan node inserted in the middle
+                            end -= length
+                        if end - start >= min_sv_size:
+                            sigs.append(SignatureDeletion(g.contig, start, end - start, "ref_split", g.query_name))
+
+                sigs = sigs+sigs_cigar
+
+            sigs = [sig for sig in sigs if sig.type == g.type]
+
+            sigs_ = []
+            # Find the closest SV record
+            bam_pos = g.pos.split(':')
+            bam_len = int(bam_pos[2]) - int(bam_pos[1])
+            bam_seq = g.bam_seq
+            if len(sigs) > 1:
+                dis = calculate_euclidean_distance_sigs([bam_pos[1], bam_len], [[sig.start, sig.svlen] for sig in sigs])
+                min_index = np.argmin(dis)
+                sigs_ = [sigs[min_index]]
+            elif len(sigs) == 1:
+                sigs_ = sigs
+
+            if not sigs_ or (sigs_ and min(sigs_[0].svlen, bam_len) / max(sigs_[0].svlen, bam_len) < 0.7):
+                if g.type == "INS":
+                    sv_signatures.append(SignatureInsertion(bam_pos[0], int(bam_pos[1]), bam_len, "inconsistent", g.query_name, alt_seq=bam_seq))
+                else:
+                    sv_signatures.append(SignatureDeletion(bam_pos[0], int(bam_pos[1]), bam_len, "inconsistent", g.query_name))
+                continue
+
+            sv_signatures.extend(sigs_)
 
     for key, value in read_dict.items():
         if len(value) > 1:
@@ -538,29 +538,32 @@ def read_gaf(gaf_chunk, gfa_node, options):
     return sv_signatures
 
 
-def read_gaf_pan(gaf_chunk, gfa_node, options):
+def read_gaf_pan(gfa_node, options):
     """Parse WGS GAF record to extract SVs."""
     sv_signatures = []
     read_dict = defaultdict(list)
 
-    for line in gaf_chunk:
-        tokens = line.strip().split('\t')
-        if tokens[4] == '*':
-            continue
-        g = parse_gaf_line(tokens, gfa_node)
-        if g.mapping_quality < options.min_mapq:
-            continue
+    with open(options.gaf, 'r') as gaf_file:
+        for line in gaf_file:
+            tokens = line.strip().split('\t')
+            if tokens[4] == '*':
+                continue
+            g = parse_gaf_line(tokens, gfa_node)
+            if g.mapping_quality < options.min_mapq:
+                continue
 
-        read_dict[tokens[0]].append(g)
+            if gfa_node[g.path[0][1:]].sr != 0:
+                continue
+            read_dict[tokens[0]].append(g)
 
-        if g.query_end - g.query_start < g.query_length * 0.7:  # filter cigar in short alignments
-            continue
+            if g.query_end - g.query_start < g.query_length * 0.7:  # filter cigar in short alignments
+                continue
 
-        sigs = decompose_cigars(g, gfa_node, options)
-        if len(sigs) > 1 and len(sigs) > g.query_length * 1e-4 * 2:
-            continue
-        sigs_merged = merge_cigar(sigs, max_merge=options.max_merge_threshold)
-        sv_signatures.extend(sigs_merged)
+            sigs = decompose_cigars(g, gfa_node, options)
+            if len(sigs) > 1 and len(sigs) > g.query_length * 1e-4 * 2:
+                continue
+            sigs_merged = merge_cigar(sigs, max_merge=options.max_merge_threshold)
+            sv_signatures.extend(sigs_merged)
 
     for key, value in read_dict.items():
         if len(value) > 1:

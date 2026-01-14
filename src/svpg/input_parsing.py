@@ -11,7 +11,7 @@ def parse_arguments(arguments=sys.argv[1:]):
         sys.exit(1)
     parser.add_argument('-v', '--version',
                         action='version',
-                        version='svpg v1.3.0')
+                        version='svpg v1.3.1')
 
     subparsers = parser.add_subparsers(help='mode', dest='sub')
     parser.set_defaults(sub='call')
@@ -64,9 +64,12 @@ def parse_arguments(arguments=sys.argv[1:]):
                             default=1000000,
                             help='Ignore extremely large BNDs from split alignments unless supported by high enough reads,\
                                   which may be regarded as false-negative intra-chromosomal translocation')
+    parser_bam.add_argument('--alt_consensus',
+                            action='store_true',
+                            help='Generate alternative allele consensus sequences for insertion using pyabpoa.')
     parser_bam.add_argument('--noseq',
                             action='store_true',
-                            help='Disable sequence extraction for SVs. Useful for large SVs to save time and disk space.')
+                            help='Disable sequence extraction for SVs. Useful for ultra-large SVs to save time and disk space.')
     parser_bam.add_argument('--realign',
                             action='store_true',
                             help='Realign the noise reads to the reference for more accurate SV sequence inference')
@@ -137,7 +140,7 @@ def parse_arguments(arguments=sys.argv[1:]):
                                   which may be regarded as false-negative intra-chromosomal translocation')
     parser_gaf.add_argument('--noseq',
                             action='store_true',
-                            help='Disable sequence extraction for SVs. Useful for large SVs to save time and disk space.')
+                            help='Disable sequence extraction for SVs. Useful for ultra-large SVs to save time and disk space.')
     parser_gaf.add_argument('-s', '--min_support',
                             type=int,
                             default=2,
