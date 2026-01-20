@@ -10,6 +10,30 @@ class gfaNode:
         self.offset = offset
         self.sr = sr
 
+def parse_contig_from_sn(tag: str) -> str:
+    """
+    Parse contig name from GFA SN:Z: tag.
+    Supports:
+      - SN:Z:CHM13#0#chr1
+      - SN:Z:id=CHM13v2|chr1
+      - SN:Z:chr1
+    """
+    assert tag.startswith("SN:Z:"), f"Unexpected SN tag: {tag}"
+
+    value = tag[5:]  # remove 'SN:Z:'
+
+    # case 1: contains '|', take last field
+    if '|' in value:
+        return value.split('|')[-1]
+
+    # case 2: contains '#', take last field
+    if '#' in value:
+        return value.split('#')[-1]
+
+    # case 3: exit
+    return value
+
+
 def read_gfa(ref_graph):
     """Parse a GFA file to extract node and edge information."""
     gfa_node, gfa_edge = {}, {}
@@ -21,8 +45,8 @@ def read_gfa(ref_graph):
                 sequence = tokens[2]
                 try:
                     length = int(tokens[3][5:])  # e.g., LN:i:1234 -> 1234
-                    contig = tokens[4][5:]  # e.g., RC:Z:chr1 -> chr1
-                    offset = int(tokens[5][5:])  # e.g., OF:i:456 -> 456
+                    contig = parse_contig_from_sn(tokens[4])  # e.g., SN:Z:chr1 -> chr1
+                    offset = int(tokens[5][5:])
                     sr = int(tokens[6][5:])  # e.g., SR:i:1
                 except (IndexError, ValueError):
                     raise ValueError(f"Invalid S-line format in GFA: {line}")
