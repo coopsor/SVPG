@@ -138,6 +138,9 @@ def parse_arguments(arguments=sys.argv[1:]):
                             default=1000000,
                             help='Ignore extremely large BNDs from split alignments unless supported by high enough reads,\
                                   which may be regarded as false-negative intra-chromosomal translocation')
+    parser_gaf.add_argument('--alt_consensus',
+                            action='store_true',
+                            help='Generate alternative allele consensus sequences for insertion using pyabpoa.')
     parser_gaf.add_argument('--noseq',
                             action='store_true',
                             help='Disable sequence extraction for SVs. Useful for ultra-large SVs to save time and disk space.')
