@@ -167,9 +167,9 @@ As this feature is still experimental, we recommend enabling it in analyses that
 * The graph-based mode currently does not support genotyping. Users should manually adjust the minimum read support threshold using the `--min_support`/`-s` parameter based on sequencing depth to balance sensitivity and precision.
  
 ## Citation
-Refer to our [paper](https://doi.org/10.1101/2025.07.11.664486) for further details and citation:
+Refer to our [paper](https://www.nature.com/articles/s41592-026-03219-2) for further details and citation:
 
-Hu, H. et al. SVPG: A pangenome-based structural variant detection approach and rapid augmentation of pangenome graphs with new samples. bioRxiv, 2025.2007.2011.664486 (2025).
+Jiang, T., Hu, H., Gao, R. et al. SVPG: a pangenome-based structural variant detection approach and rapid augmentation of pangenome graphs with new samples. Nat Methods (2026). https://doi.org/10.1038/s41592-026-03219-2
 
 ## Contact
 
