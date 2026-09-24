@@ -4,6 +4,7 @@
 [![Anaconda-Server Badge](https://anaconda.org/bioconda/svpg/badges/license.svg)](https://anaconda.org/bioconda/svpg)
 [![Anaconda-Server Badge](https://anaconda.org/bioconda/svpg/badges/platforms.svg)](https://anaconda.org/bioconda/svpg)
 [![Anaconda-Server Badge](https://anaconda.org/bioconda/svpg/badges/latest_release_date.svg)](https://anaconda.org/bioconda/svpg)
+[![Anaconda-Server Badge](https://anaconda.org/bioconda/svpg/badges/downloads.svg)](https://anaconda.org/bioconda/svpg)
 
 ## Overview
 <table style="border-collapse: collapse; border: none; padding: 0; margin: 0; width: 100%;">
@@ -38,6 +39,15 @@
 * **High sensitivity and accuracy SV detection**: Demonstrates superior performance in benchmarking against state-of-the-art SV callers across both population-wide germline and individual-specific SVs.
 * **Rapid graph augmentation**: Designed to work seamlessly with the graph-call mode, it accelerates pangenome augmentation by nearly an order of magnitude compared to traditional _de novo_ assembly methods on cohorts of dozens of samples, enabling fast and scalable integration of new samples.
 
+## Notice
+#### You can also try our latest SV detection tools:
+
+* Basic SV calling -> [cuteSV](https://github.com/tjiangHIT/cuteSV)  [[Genome Biology](https://link.springer.com/article/10.1186/s13059-020-02107-y)]
+* Real‑time SV calling for nanopore devices -> [cuteSV-OL](https://github.com/gwmHIT/cuteSV-OL)  [[Bioinformatics](https://academic.oup.com/bioinformatics/article/42/1/btaf668/8382785?login=false)]
+* Haplotype‑aware SV detection -> [cuteHap](https://github.com/Meltpinkg/cuteHap)  [[Advanced Science](https://advanced.onlinelibrary.wiley.com/doi/10.1002/advs.202519314)]
+* Somatic SV discovery -> [SomaSV](https://github.com/eioyuou/SomaSV)  [[bioRxiv](https://www.biorxiv.org/content/10.64898/2026.02.16.706063v1)]
+
+
 ## Contents
 * [Installation](#installation)
 * [Requirements](#requirements)
@@ -49,7 +59,6 @@
 * [Limitations](#limitations)
 * [Citation](#citation)
 * [Contact](#contact)
-
 
 ## Installation
 
@@ -173,4 +182,4 @@ Jiang, T., Hu, H., Gao, R. et al. SVPG: a pangenome-based structural variant det
 
 ## Contact
 
-For questions or support, please open an issue on GitHub or contact the authors at [hhengwork@gmail.com](mailto:hhengwork@gmail.com).
+For questions or support, please open an issue on GitHub or contact the authors at [hhengwork@gmail.com](mailto:hhengwork@gmail.com) or [tjiang@hit.edu.cn](mailto:tjiang@hit.edu.cn).
