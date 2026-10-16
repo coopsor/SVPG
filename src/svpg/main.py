@@ -421,7 +421,8 @@ def main():
                             "-o", var_file,
                             "--min_sv_size", str(options.min_sv_size),
                             "--max_sv_size", str(options.max_sv_size),
-                            "--types", 'DEL,INS'
+                            "--types", 'DEL,INS',
+                            "--contigs", options.contigs
                         ]
                         try:
                             subprocess.run(cmd_call, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
