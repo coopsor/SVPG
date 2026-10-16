@@ -167,6 +167,10 @@ def parse_arguments(arguments=sys.argv[1:]):
     parser_augment.add_argument('--ref',
                                 type=str,
                                 help='The reference genome used for pangenome construction (.fa), is also serves as the coordinate system for SVPG’s SV call output.')
+    parser_augment.add_argument('--ref_size',
+                                type=int,
+                                defaut=3.1
+                                help='The reference genome size (GB) used for sequencing depth estimation.')
     parser_augment.add_argument('--gfa',
                                 type=str,
                                 help='Pangenome reference file that the long reads were aligned to (.gfa)')
@@ -206,5 +210,9 @@ def parse_arguments(arguments=sys.argv[1:]):
     parser_augment.add_argument('--skip_call',
                                 action='store_true',
                                 help='Skip SV calling step and directly proceed to graph augmentation using existing VCF files in the working directory. ')
+    parser_gaf.add_argument('--contigs',
+                            type=str,
+                            nargs='*',
+                            help='Specify the chromosomes list to call SVs (e.g., --contigs chr1 chr2 chrX)')
 
     return parser.parse_args(arguments)
