@@ -390,7 +390,7 @@ def main():
 
                         logging.info(f"Start call SVs from {prefix}")
                         file_size = os.path.getsize(fasta_file_name)
-                        coverage = file_size // (1024 * 1024 * 1024) // 3.1
+                        coverage = file_size // (1024 * 1024 * 1024) // options.ref_size
                         hifi_support_map = [
                             (0, 5, 1), (5, 15, 2), (15, 25, 3), (25, 50, 4), (50, float("inf"), 5)
                         ]
