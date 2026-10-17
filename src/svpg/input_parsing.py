@@ -210,7 +210,7 @@ def parse_arguments(arguments=sys.argv[1:]):
     parser_augment.add_argument('--skip_call',
                                 action='store_true',
                                 help='Skip SV calling step and directly proceed to graph augmentation using existing VCF files in the working directory. ')
-    parser_gaf.add_argument('--contigs',
+    parser_augment.add_argument('--contigs',
                             type=str,
                             nargs='*',
                             help='Specify the chromosomes list to call SVs (e.g., --contigs chr1 chr2 chrX)')
