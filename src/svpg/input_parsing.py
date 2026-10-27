@@ -169,7 +169,7 @@ def parse_arguments(arguments=sys.argv[1:]):
                                 help='The reference genome used for pangenome construction (.fa), is also serves as the coordinate system for SVPG’s SV call output.')
     parser_augment.add_argument('--ref_size',
                                 type=int,
-                                defaut=3.1
+                                default=3.1,
                                 help='The reference genome size (GB) used for sequencing depth estimation.')
     parser_augment.add_argument('--gfa',
                                 type=str,
