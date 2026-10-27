@@ -199,6 +199,10 @@ def parse_arguments(arguments=sys.argv[1:]):
                                 type=int,
                                 default=20,
                                 help='Minimum mapping quality for reads to be considered in SV detection.')
+    parser_augment.add_argument('--max_merge_threshold',
+                                type=int,
+                                default=500,
+                                help='Maximum distance of SV signals to be merged.')
     parser_augment.add_argument('--min_sv_size',
                                 type=int,
                                 default=50,
@@ -211,8 +215,8 @@ def parse_arguments(arguments=sys.argv[1:]):
                                 action='store_true',
                                 help='Skip SV calling step and directly proceed to graph augmentation using existing VCF files in the working directory. ')
     parser_augment.add_argument('--contigs',
-                            type=str,
-                            nargs='*',
-                            help='Specify the chromosomes list to call SVs (e.g., --contigs chr1 chr2 chrX)')
+                                type=str,
+                                nargs='*',
+                                help='Specify the chromosomes list to call SVs (e.g., --contigs chr1 chr2 chrX)')
 
     return parser.parse_args(arguments)
