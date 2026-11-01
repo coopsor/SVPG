@@ -311,12 +311,14 @@ def main():
 
         fasta_file.close()
 
-        if options.read == 'hifi':
-            os.system(
-                f'minigraph -t {options.num_threads} -cx asm --vc --secondary yes {options.gfa} {options.working_dir}/{sig_read}.fa > {options.working_dir}/{sig_read}.gaf')
-        else:
-            os.system(
-                f'minigraph -t {options.num_threads} -cx lr --vc --secondary yes {options.gfa} {options.working_dir}/{sig_read}.fa > {options.working_dir}/{sig_read}.gaf')
+        align_mode = options.align_mode
+        if align_mode is None:
+            align_mode = "asm" if options.read == "hifi" else "lr"
+        os.system(
+            f'minigraph -t {options.num_threads} -cx {align_mode} --vc --secondary yes '
+            f'{options.gfa} {options.working_dir}/{sig_read}.fa '
+            f'> {options.working_dir}/{sig_read}.gaf'
+        )
 
         logging.info("*************** Collect signatures from pangenome-reference ***************")
 
@@ -338,7 +340,8 @@ def main():
         #         logging.info(f"Processing chunk {chunk_index + 1}")
         #         pan_signatures.extend(multi_process(len(lines), 'read_gaf_pan', (lines, gfa_node)))
         #         logging.info(f"Processed chunks {chunk_index + 1}")
-        sig_read = 'signatures_test'
+        # sig_read = 'signatures_test'
+
     elif options.sub == 'augment':
         logging.info("MODE: augment")
         logging.info("*************** Collect SVs from pangenome ***************")
@@ -370,11 +373,13 @@ def main():
 
                         fasta_path_in_dir = os.path.join(entry.path, f"{entry.name}{file_type}")
                         sample_paths_to_process.append(fasta_path_in_dir)
+
             if not sample_paths_to_process:
                 logging.error("No sample paths to process. Please check your sample list or directory structure.")
                 raise RuntimeError("No sample paths to process.")
             else:
                 logging.info(f"Found {len(sample_paths_to_process)} samples to process.")
+
             with open(filelist_path, "a") as filelist:
                 for fasta_file_path in sample_paths_to_process:
                     try:
@@ -401,19 +406,56 @@ def main():
                         support = next(val for low, high, val in support_map if low <= coverage <= high)
 
                         gaf_file = f"{prefix}.gaf"
-                        if not os.path.exists(gaf_file):
-                            if options.read == 'hifi':
-                                cmd_align = f"minigraph -t{options.num_threads} -cxasm --vc --secondary yes {options.gfa} {fasta_file_name} > {gaf_file}"
-                            else:
-                                cmd_align = f"minigraph -t{options.num_threads} -cxlr --vc --secondary yes {options.gfa} {fasta_file_name} > {gaf_file}"
-                            os.system(cmd_align)
 
+                        if not os.path.exists(gaf_file):
+                            align_mode = options.align_mode
+                            if align_mode is None:
+                                align_mode = "asm" if options.read == "hifi" else "lr"
+
+                            cmd_align = [
+                                "minigraph",
+                                f"-t{options.num_threads}",
+                                "-cx", align_mode,
+                                "--vc", "--secondary", "yes",
+                                options.gfa,
+                                fasta_file_name
+                            ]
+
+                            try:
+                                with open(gaf_file, "w") as fout:
+                                    subprocess.run(
+                                        cmd_align,
+                                        check=True,
+                                        stdout=fout,
+                                        stderr=subprocess.PIPE,
+                                        text=True
+                                    )
+
+                            except subprocess.CalledProcessError as e:
+                                logging.error(f"[ERROR] Minigraph alignment failed: {fasta_file_name}")
+                                logging.error(f"[ERROR] stderr:\n{e.stderr}")
+                                raise RuntimeError(
+                                    f"Minigraph alignment failed for {fasta_file_name}"
+                                ) from e
+
+                            except OSError as e:
+                                logging.error(f"[ERROR] Failed to execute Minigraph: {e}")
+                                raise
+
+                        if not os.path.exists(gaf_file) or os.path.getsize(gaf_file) == 0:
+                            if os.path.exists(gaf_file):
+                                os.remove(gaf_file)
+
+                            raise RuntimeError(
+                                f"Minigraph produced an empty GAF file for {fasta_file_name}."
+                            )
+                                
                         var_file = options.vcf_out
                         cmd_call = [
                             "python", __file__, "graph-call",
                             "--read", options.read,
                             "-s", str(support),
-                            "-t",str(options.num_threads),
+                            "-t", str(options.num_threads),
                             "--working_dir", './',  # This should refer to the current sample directory
                             "--ref", options.ref,
                             "--gfa", options.gfa,
@@ -421,15 +463,15 @@ def main():
                             "-o", var_file,
                             "--min_sv_size", str(options.min_sv_size),
                             "--max_sv_size", str(options.max_sv_size),
-                            "--types", 'DEL,INS',
-                            "--contigs", options.contigs
+                            "--types", options.types,
                         ]
+                        if options.contigs:
+                            cmd_call.extend(["--contigs", *options.contigs])
                         try:
-                            subprocess.run(cmd_call, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                                           text=True)
+                            subprocess.run(cmd_call, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
                             pysam.tabix_compress(var_file, f"{var_file}.gz", force=True)
                             pysam.tabix_index(f"{var_file}.gz", preset="vcf", force=True)
-                        except subprocess.CalledProcessError:
+                        except subprocess.CalledProcessError as e:
                             logging.error(
                                 f"'{prefix}' encountered an error while running the SVs call.\
                                 Please check the logs in the sample directory: {sample_dir}"
@@ -498,6 +540,15 @@ def main():
 
     logging.info("********************************** SVCALL *********************************")
 
+    common_contigs = chrom_results.keys() & set(options.contigs)
+    if not common_contigs:
+        raise ValueError(
+            "No overlapping contig names between graph and reference. "
+            f"Graph contigs (examples): {chrom_results.keys}; "
+            f"Reference contigs (examples): {options.contigs}. "
+            "Please check chromosome naming consistency and ensure that the coordinate system is the same, e.g. 'chr1' vs '1'."
+        )
+    
     sv_candidate = []
     for contig in chrom_results:
         if contig in options.contigs:

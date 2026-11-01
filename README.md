@@ -125,7 +125,7 @@ This procedure selects SVs that are present only in the tumor sample but absent 
 SVPG provides a streamlined pipeline to rapidly embed _de novo_ SVs detected from graph-based alignment back into the pangenome graph.
 To use this feature, users should place a directory containing the raw sequencing data (e.g., FASTA/FASTQ files) of new samples under the specified `working_dir` path. For example:
 ```bash
-working_dir/
+svpg_out/
 ├── sample_1/
 │   └── sample_1.fasta
 ├── sample_2/
@@ -137,7 +137,7 @@ svpg augment --working_dir svpg_out/ --ref hg38.fa --gfa pangenome.gfa --read hi
 ```
 Alternatively, you may provide a .tsv file listing the paths to FASTA files of new samples.
 For example, the sample.tsv file may look like(sample_1 name ≠ sample_2 name):
-`/path/to/sample_1.fasta \n /path/to/sample_2.fasta`
+`/path/to/sample_1/sample_1.fasta \n /path/to/sample_2/sample_2.fasta`
 then, run the command `svpg augment --working_dir svpg_out/ --sample_list sample.tsv --ref hg38.fa --gfa pangenome.gfa --read hifi` 
 
 ## Parameters
@@ -158,11 +158,12 @@ then, run the command `svpg augment --working_dir svpg_out/ --sample_list sample
 | `--ultra_split_size`    | Ignore extremely large BNDs from split alignments unless supported by high enough reads, which may be regarded as false-negative intra-chromosomal translocation. | 1000000                                                                            |
 | `--alt_consensus`       | Generate alternative allele consensus sequences for insertion using pyabpoa.                                                                                      | Disable                                                                            |
 | `--noseq`               | Disable sequence extraction for SVs. Useful for ultra-large SVs to save time and disk space.                                                                      | Disabled                                                                           |
-| `--types`               | Specify the types of SVs to call: DEL, INS, DUP, INV, BND. Separate multiple types with commas.                                                                   | DEL,INS,DUP,INV,BND                                                                |
-| `--contigs`             | Specify the chromosomes list to call SVs (e.g., --contigs chr1 chr2 chrX)'.                                                                                       | All chromosomes                                                                    |   
+| `--types`               | Specify the types of SVs to call: DEL, INS, DUP, INV, BND. Separate multiple types with commas.                                                                   | DEL,INS,DUP,INV,BND                                                         |
+| `--contigs`             | Specify the chromosomes list to call SVs. Useful for testing selected chromosomes or processing non-standard chromosome names. (e.g., --contigs chr1 chr02 chrZ)'.                                                                                       | All chromosomes   
+| `--ref_size`             | The reference genome size (GB) used for sequencing depth estimation of `augment` mode.'.                                                                                       | 3.1 (For human genome)                                                                    |   
 | `--skip_genotype`       | Skip genotyping step to speed up the process for `call` mode.                                                                                                     | Disabled                                                                           |
 | `--realign`             | Realign the noise reads to the reference for more accurate SV sequence inference for `call` mode.                                                                 | Disabled                                                                           |
-| `--sample_list`         | Path to a TSV file listing the paths to FASTA files of new samples for `augment` mode.                                                                            | Optional; if not provided, all FASTA files under `working_dir` will be processed.  |
+| `--sample_list`         | Path to a TSV file listing the paths to FASTA files of new samples for `augment` mode. Each sample must reside in a uniquely named directory to prevent output file conflicts.                                                                            | Optional; if not provided, all FASTA files under `working_dir` will be processed.  |
 | `--skip_call`           | Skip SV calling step and directly proceed to graph augmentation using existing VCF files in the working directory.                                                | Disabled                                                                           |
 | `--out`/`-o`            | Specify the output file name.                                                                                                                                     | `variants.vcf` for `call` and `graph-call` modes, `augment.gfa` for `augment` mode |
 | `--version`/`-v`        | Show the version of SVPG.                                                                                                                                         | N/A                                                                                |

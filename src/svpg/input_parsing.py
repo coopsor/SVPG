@@ -11,7 +11,7 @@ def parse_arguments(arguments=sys.argv[1:]):
         sys.exit(1)
     parser.add_argument('-v', '--version',
                         action='version',
-                        version='svpg v1.4.1')
+                        version='svpg v1.5.0')
 
     subparsers = parser.add_subparsers(help='mode', dest='sub')
     parser.set_defaults(sub='call')
@@ -89,6 +89,10 @@ def parse_arguments(arguments=sys.argv[1:]):
     parser_bam.add_argument('--skip_genotype',
                             action='store_true',
                             help='Skip genotyping step to speed up the processing.')
+    parser_bam.add_argument("--align_mode",
+                              choices=["lr", "asm"],
+                              default=None,
+                              help=("Minigraph alignment preset: 'lr' for long-read mapping, 'asm' for assemblies or high-quality CCS reads."))
 
     ##########################################################
     parser_gaf = subparsers.add_parser('graph-call',
@@ -168,7 +172,7 @@ def parse_arguments(arguments=sys.argv[1:]):
                                 type=str,
                                 help='The reference genome used for pangenome construction (.fa), is also serves as the coordinate system for SVPG’s SV call output.')
     parser_augment.add_argument('--ref_size',
-                                type=int,
+                                type=float,
                                 default=3.1,
                                 help='The reference genome size (GB) used for sequencing depth estimation.')
     parser_augment.add_argument('--gfa',
@@ -214,9 +218,18 @@ def parse_arguments(arguments=sys.argv[1:]):
     parser_augment.add_argument('--skip_call',
                                 action='store_true',
                                 help='Skip SV calling step and directly proceed to graph augmentation using existing VCF files in the working directory. ')
+    parser_augment.add_argument('--types',
+                              type=str,
+                              default="DEL,INS,DUP,INV,BND",
+                              help='SV types to include in output VCF (default: %(default)s). \
+                                    Give a comma-separated list of SV types, like "DEL,INS"')
     parser_augment.add_argument('--contigs',
                                 type=str,
                                 nargs='*',
                                 help='Specify the chromosomes list to call SVs (e.g., --contigs chr1 chr2 chrX)')
-
+    parser_augment.add_argument("--align_mode",
+                              choices=["lr", "asm"],
+                              default=None,
+                              help=("Minigraph alignment preset: 'lr' for long-read mapping, 'asm' for assemblies or high-quality CCS reads."))
+    
     return parser.parse_args(arguments)
